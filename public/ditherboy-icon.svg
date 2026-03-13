@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>DitherBoy</title>
+  <desc>DitherBoy app icon — CMYK halftone dot field on deep teal</desc>
+
+  <defs>
+    <clipPath id="roundClip">
+      <rect width="512" height="512" rx="112" ry="112"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#006060"/>
+  <rect width="512" height="512" rx="112" fill="#004040" opacity="0.45" clip-path="url(#roundClip)"/>
+
+  <!-- Row 0  y=44 -->
+  <circle cx="64"  cy="44"  r="22" fill="#00c8e0" opacity="0.93"/>
+  <circle cx="140" cy="44"  r="14" fill="#ff0090" opacity="0.85"/>
+  <circle cx="210" cy="44"  r="26" fill="#ffe000" opacity="0.90"/>
+  <circle cx="282" cy="44"  r="10" fill="#00c8e0" opacity="0.80"/>
+  <circle cx="350" cy="44"  r="20" fill="#ff0090" opacity="0.88"/>
+  <circle cx="420" cy="44"  r="16" fill="#ffe000" opacity="0.82"/>
+  <circle cx="480" cy="44"  r="12" fill="#00c8e0" opacity="0.78"/>
+
+  <!-- Row 1  y=116 -->
+  <circle cx="32"  cy="116" r="16" fill="#ffe000" opacity="0.80"/>
+  <circle cx="104" cy="116" r="28" fill="#00c8e0" opacity="0.95"/>
+  <circle cx="176" cy="116" r="10" fill="#111111" opacity="0.65"/>
+  <circle cx="246" cy="116" r="24" fill="#ff0090" opacity="0.90"/>
+  <circle cx="318" cy="116" r="18" fill="#ffe000" opacity="0.86"/>
+  <circle cx="390" cy="116" r="28" fill="#00c8e0" opacity="0.90"/>
+  <circle cx="458" cy="116" r="12" fill="#ff0090" opacity="0.80"/>
+
+  <!-- Row 2  y=188 -->
+  <circle cx="64"  cy="188" r="20" fill="#ff0090" opacity="0.88"/>
+  <circle cx="140" cy="188" r="14" fill="#ffe000" opacity="0.84"/>
+  <circle cx="210" cy="188" r="30" fill="#00c8e0" opacity="0.95"/>
+  <circle cx="282" cy="188" r="16" fill="#111111" opacity="0.60"/>
+  <circle cx="350" cy="188" r="24" fill="#ff0090" opacity="0.90"/>
+  <circle cx="428" cy="188" r="18" fill="#ffe000" opacity="0.85"/>
+  <circle cx="492" cy="188" r="10" fill="#00c8e0" opacity="0.78"/>
+
+  <!-- Row 3  y=260 — densest, centre of icon -->
+  <circle cx="32"  cy="260" r="26" fill="#ffe000" opacity="0.90"/>
+  <circle cx="108" cy="260" r="12" fill="#00c8e0" opacity="0.78"/>
+  <circle cx="178" cy="260" r="22" fill="#ff0090" opacity="0.88"/>
+  <circle cx="252" cy="260" r="32" fill="#ffe000" opacity="0.92"/>
+  <circle cx="326" cy="260" r="14" fill="#111111" opacity="0.55"/>
+  <circle cx="396" cy="260" r="26" fill="#00c8e0" opacity="0.90"/>
+  <circle cx="466" cy="260" r="18" fill="#ff0090" opacity="0.86"/>
+
+  <!-- Row 4  y=332 -->
+  <circle cx="64"  cy="332" r="14" fill="#00c8e0" opacity="0.82"/>
+  <circle cx="140" cy="332" r="24" fill="#ff0090" opacity="0.88"/>
+  <circle cx="212" cy="332" r="18" fill="#ffe000" opacity="0.84"/>
+  <circle cx="284" cy="332" r="28" fill="#00c8e0" opacity="0.92"/>
+  <circle cx="356" cy="332" r="10" fill="#ff0090" opacity="0.76"/>
+  <circle cx="424" cy="332" r="22" fill="#ffe000" opacity="0.88"/>
+  <circle cx="488" cy="332" r="16" fill="#111111" opacity="0.58"/>
+
+  <!-- Row 5  y=404 -->
+  <circle cx="36"  cy="404" r="20" fill="#ff0090" opacity="0.86"/>
+  <circle cx="108" cy="404" r="14" fill="#ffe000" opacity="0.82"/>
+  <circle cx="176" cy="404" r="28" fill="#00c8e0" opacity="0.92"/>
+  <circle cx="248" cy="404" r="12" fill="#ff0090" opacity="0.78"/>
+  <circle cx="318" cy="404" r="24" fill="#ffe000" opacity="0.90"/>
+  <circle cx="390" cy="404" r="16" fill="#111111" opacity="0.55"/>
+  <circle cx="460" cy="404" r="22" fill="#00c8e0" opacity="0.88"/>
+
+  <!-- Row 6  y=470 -->
+  <circle cx="64"  cy="470" r="16" fill="#ffe000" opacity="0.80"/>
+  <circle cx="140" cy="470" r="22" fill="#00c8e0" opacity="0.86"/>
+  <circle cx="212" cy="470" r="10" fill="#ff0090" opacity="0.74"/>
+  <circle cx="280" cy="470" r="26" fill="#ffe000" opacity="0.90"/>
+  <circle cx="352" cy="470" r="14" fill="#00c8e0" opacity="0.82"/>
+  <circle cx="422" cy="470" r="20" fill="#ff0090" opacity="0.88"/>
+  <circle cx="484" cy="470" r="8"  fill="#ffe000" opacity="0.72"/>
+
+  <!-- "DB" ghost lettermark -->
+  <text x="256" y="312"
+    text-anchor="middle" dominant-baseline="middle"
+    font-family="'Arial Black', 'Impact', sans-serif"
+    font-size="164" font-weight="900" letter-spacing="-8"
+    fill="white" opacity="0.13">DB</text>
+
+  <!-- Outer ring -->
+  <rect width="512" height="512" rx="112"
+    fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="3"/>
+</svg>
