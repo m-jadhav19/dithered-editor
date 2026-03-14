@@ -32,13 +32,86 @@ const PALETTES = {
   c64:     [[0,0,0],[255,255,255],[136,0,0],[170,255,238],[204,68,204],[0,204,85],[0,0,170],[238,238,119],[221,136,85],[102,68,0],[255,119,119],[51,51,51],[119,119,119],[170,255,102],[0,136,255],[187,187,187]],
 };
 
-const CATEGORIES = ["Halftone","Error Diffusion","Ordered","Pixel Art"];
+const CATEGORIES = ["Halftone","Error Diffusion","Ordered","Pixel Art","Neon Glow"];
 const MODES = {
   Halftone:          ["CMYK","Mono"],
   "Error Diffusion": ["Floyd-Steinberg","Atkinson","Sierra","Jarvis"],
   Ordered:           ["Bayer 4x4","Bayer 8x8","Bayer 2x2"],
   "Pixel Art":       ["8-bit","Game Boy","CGA"],
+  "Neon Glow":       ["Cyan","Lime","Violet","Rose","Amber","Custom"],
 };
+
+// Neon Glow colour map (mode → [r,g,b])
+const NEON_COLORS = {
+  Cyan:   [0,  220, 240],
+  Lime:   [160,255, 0  ],
+  Violet: [210,100,255 ],
+  Rose:   [255, 60, 180],
+  Amber:  [255,180,  0 ],
+};
+
+// Presets — each one sets a complete block of settings
+const PRESETS = [
+  // ── Neon Glow ──────────────────────────────────────────────────────────────
+  { name:"Neon Cyan",    emoji:"🩵", category:"Neon Glow", mode:"Cyan",
+    cellSize:6,  dotGain:30, blackMix:61, brightness:10, contrast:20, saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Neon Lime",    emoji:"🟢", category:"Neon Glow", mode:"Lime",
+    cellSize:5,  dotGain:25, blackMix:61, brightness:15, contrast:25, saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Neon Violet",  emoji:"💜", category:"Neon Glow", mode:"Violet",
+    cellSize:7,  dotGain:28, blackMix:61, brightness:5,  contrast:22, saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Neon Rose",    emoji:"🌸", category:"Neon Glow", mode:"Rose",
+    cellSize:6,  dotGain:32, blackMix:61, brightness:8,  contrast:20, saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Neon Amber",   emoji:"🔥", category:"Neon Glow", mode:"Amber",
+    cellSize:5,  dotGain:35, blackMix:61, brightness:12, contrast:28, saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:30 },
+  // ── Halftone ───────────────────────────────────────────────────────────────
+  { name:"CMYK Press",   emoji:"🖨", category:"Halftone",  mode:"CMYK",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:0,  saturation:0,  scale:1,
+    cyanAngle:333, magentaAngle:19, yellowAngle:317, blackAngle:45 },
+  { name:"Newsprint",    emoji:"📰", category:"Halftone",  mode:"Mono",
+    cellSize:8,  dotGain:15, blackMix:61, brightness:-5, contrast:15, saturation:0,  scale:1,
+    cyanAngle:45, magentaAngle:45, yellowAngle:45, blackAngle:45 },
+  { name:"Fine Print",   emoji:"🔍", category:"Halftone",  mode:"Mono",
+    cellSize:4,  dotGain:10, blackMix:61, brightness:0,  contrast:10, saturation:0,  scale:1,
+    cyanAngle:45, magentaAngle:45, yellowAngle:45, blackAngle:22 },
+  { name:"Coarse Dots",  emoji:"⚫", category:"Halftone",  mode:"Mono",
+    cellSize:18, dotGain:5,  blackMix:61, brightness:5,  contrast:20, saturation:0,  scale:1,
+    cyanAngle:45, magentaAngle:45, yellowAngle:45, blackAngle:45 },
+  { name:"Risograph",    emoji:"🖼", category:"Halftone",  mode:"CMYK",
+    cellSize:12, dotGain:40, blackMix:30, brightness:5,  contrast:15, saturation:20, scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:0,  blackAngle:45 },
+  // ── Error Diffusion ────────────────────────────────────────────────────────
+  { name:"Atkinson",     emoji:"🌀", category:"Error Diffusion", mode:"Atkinson",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:5,  saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Floyd-Stein",  emoji:"🎲", category:"Error Diffusion", mode:"Floyd-Steinberg",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:8,  saturation:10, scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Sierra Hi",    emoji:"🏔", category:"Error Diffusion", mode:"Sierra",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:12, saturation:5,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  // ── Ordered ────────────────────────────────────────────────────────────────
+  { name:"Bayer 8×8",    emoji:"▦", category:"Ordered",   mode:"Bayer 8x8",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:10, saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"Bayer 2×2",    emoji:"▪", category:"Ordered",   mode:"Bayer 2x2",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:5,  saturation:0,  scale:1,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  // ── Pixel Art ──────────────────────────────────────────────────────────────
+  { name:"Game Boy",     emoji:"🎮", category:"Pixel Art", mode:"Game Boy",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:10, saturation:-30,scale:3,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"C64 Colors",   emoji:"🕹", category:"Pixel Art", mode:"8-bit",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:5,  saturation:30, scale:2,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+  { name:"CGA Retro",    emoji:"📺", category:"Pixel Art", mode:"CGA",
+    cellSize:10, dotGain:20, blackMix:61, brightness:0,  contrast:15, saturation:40, scale:2,
+    cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
+];
 
 const BAYER = {
   2:[[0,2],[3,1]],
@@ -74,7 +147,7 @@ function halftoneChannel(d,w,h,ch,angle,cellSize,dotGain){
 }
 
 async function renderDither(srcID,settings){
-  const{category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale}=settings;
+  const{category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale,neonColor}=settings;
   const sw=Math.max(1,Math.floor(srcID.width/scale)),sh=Math.max(1,Math.floor(srcID.height/scale));
   const tmp=document.createElement("canvas");tmp.width=sw;tmp.height=sh;
   const tCtx=tmp.getContext("2d");
@@ -129,6 +202,42 @@ async function renderDither(srcID,settings){
       const nc=nearestColor(Math.min(255,Math.max(0,Math.round(d[(y*sw+x)*4]+t2))),Math.min(255,Math.max(0,Math.round(d[(y*sw+x)*4+1]+t2))),Math.min(255,Math.max(0,Math.round(d[(y*sw+x)*4+2]+t2))),palette);
       out[(y*sw+x)*4]=nc[0];out[(y*sw+x)*4+1]=nc[1];out[(y*sw+x)*4+2]=nc[2];out[(y*sw+x)*4+3]=255;
     }}
+  } else if(category==="Neon Glow"){
+    // Neon Glow: black bg, single vivid neon hue, halftone dot density = luminance
+    // Bright areas → large dots, dark areas → tiny/no dots (opposite of print halftone)
+    const [nr,ng,nb] = (mode==="Custom" && neonColor) ? neonColor : (NEON_COLORS[mode]||NEON_COLORS.Cyan);
+    // Convert to greyscale luminance
+    for(let i=0;i<sw*sh;i++){
+      const lum=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+      d[i*4]=d[i*4+1]=d[i*4+2]=lum;d[i*4+3]=255;
+    }
+    // Halftone pass — but invert: dot present where bright (lum high = dot)
+    const angle=blackAngle;
+    const rad=angle*Math.PI/180,cos=Math.cos(rad),sin=Math.sin(rad);
+    for(let y=0;y<sh;y++){
+      for(let x=0;x<sw;x++){
+        const rx=cos*x-sin*y,ry=sin*x+cos*y;
+        const cx2=Math.round(rx/cellSize)*cellSize,cy2=Math.round(ry/cellSize)*cellSize;
+        const ox=cos*cx2+sin*cy2,oy=-sin*cx2+cos*cy2;
+        const nx2=Math.min(sw-1,Math.max(0,Math.round(ox))),ny2=Math.min(sh-1,Math.max(0,Math.round(oy)));
+        const lum=d[(ny2*sw+nx2)*4]/255; // 0=dark,1=bright
+        const dist=Math.sqrt((x-ox)**2+(y-oy)**2);
+        // radius proportional to luminance (bright = big dot)
+        const radius=(cellSize/2)*Math.sqrt(lum)*(1+dotGain/100);
+        if(dist<=radius){
+          // Intensity falls off slightly toward dot edge for smooth glow feel
+          const edgeFade=Math.pow(1-(dist/Math.max(radius,0.001)),0.4);
+          const bright=Math.min(255,Math.round(lum*255*edgeFade));
+          out[(y*sw+x)*4  ]=Math.round(nr*bright/255);
+          out[(y*sw+x)*4+1]=Math.round(ng*bright/255);
+          out[(y*sw+x)*4+2]=Math.round(nb*bright/255);
+          out[(y*sw+x)*4+3]=255;
+        } else {
+          // Pure black background
+          out[(y*sw+x)*4]=out[(y*sw+x)*4+1]=out[(y*sw+x)*4+2]=0;out[(y*sw+x)*4+3]=255;
+        }
+      }
+    }
   } else {
     const pMap={"8-bit":"c64","Game Boy":"gameboy","CGA":"cmyk"};
     const palette=PALETTES[pMap[mode]||"c64"];
@@ -144,7 +253,118 @@ async function renderDither(srcID,settings){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THEME DEFINITIONS
+// BACKGROUND REMOVAL ENGINE  (pure canvas — no external API needed)
+//
+// Algorithm:
+//  1. Sample the 4 corners + edge midpoints to guess the dominant bg colour
+//  2. Flood-fill from every edge pixel that is close to the bg colour
+//  3. Grow the mask by a few pixels (morphological dilation) to catch fringing
+//  4. Apply a soft feathered alpha channel at mask boundaries
+//  5. Return a new ImageData with bg pixels set to fully transparent
+// ─────────────────────────────────────────────────────────────────────────────
+async function removeBackground(srcID, threshold=32, feather=3){
+  const w=srcID.width, h=srcID.height;
+  const d=new Uint8ClampedArray(srcID.data); // working copy
+  const mask=new Uint8Array(w*h);            // 0=bg candidate, 1=fg
+
+  // ── Step 1: Detect background colour from border sample points ───────────
+  const samplePoints=[];
+  // corners
+  samplePoints.push([0,0],[w-1,0],[0,h-1],[w-1,h-1]);
+  // edge midpoints
+  samplePoints.push([Math.floor(w/2),0],[Math.floor(w/2),h-1],
+                    [0,Math.floor(h/2)],[w-1,Math.floor(h/2)]);
+  // collect RGB of each sample
+  const sampleColors=samplePoints.map(([sx,sy])=>{
+    const i=(sy*w+sx)*4;
+    return [d[i],d[i+1],d[i+2]];
+  });
+  // Average them as the "expected" background colour
+  const bgR=Math.round(sampleColors.reduce((a,c)=>a+c[0],0)/sampleColors.length);
+  const bgG=Math.round(sampleColors.reduce((a,c)=>a+c[1],0)/sampleColors.length);
+  const bgB=Math.round(sampleColors.reduce((a,c)=>a+c[2],0)/sampleColors.length);
+
+  const colourDist=(r,g,b)=>Math.sqrt((r-bgR)**2+(g-bgG)**2+(b-bgB)**2);
+
+  // ── Step 2: BFS flood-fill from all 4 edges ──────────────────────────────
+  const queue=[];
+  const visited=new Uint8Array(w*h);
+
+  const tryPush=(x,y)=>{
+    if(x<0||x>=w||y<0||y>=h)return;
+    const idx=y*w+x;
+    if(visited[idx])return;
+    const pi=idx*4;
+    if(colourDist(d[pi],d[pi+1],d[pi+2])<=threshold){
+      visited[idx]=1;
+      queue.push(idx);
+    }
+  };
+
+  for(let x=0;x<w;x++){tryPush(x,0);tryPush(x,h-1);}
+  for(let y=0;y<h;y++){tryPush(0,y);tryPush(w-1,y);}
+
+  let head=0;
+  while(head<queue.length){
+    const idx=queue[head++];
+    mask[idx]=0; // confirmed bg
+    const x=idx%w, y=Math.floor(idx/w);
+    tryPush(x+1,y);tryPush(x-1,y);
+    tryPush(x,y+1);tryPush(x,y-1);
+    if(head%5000===0)await new Promise(r=>setTimeout(r,0));
+  }
+  // anything not visited by flood fill = foreground
+  for(let i=0;i<w*h;i++) if(!visited[i]) mask[i]=1;
+
+  // ── Step 3: Morphological dilation — expand fg mask by `feather` px ──────
+  const dilated=new Uint8Array(mask);
+  const fr=feather;
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      if(mask[y*w+x]===1){
+        for(let dy=-fr;dy<=fr;dy++){
+          for(let dx=-fr;dx<=fr;dx++){
+            const nx=x+dx,ny=y+dy;
+            if(nx>=0&&nx<w&&ny>=0&&ny<h) dilated[ny*w+nx]=1;
+          }
+        }
+      }
+    }
+  }
+
+  // ── Step 4: Build output with feathered alpha ─────────────────────────────
+  const out=new Uint8ClampedArray(w*h*4);
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const i=y*w+x, pi=i*4;
+      if(dilated[i]===0){
+        // Definite background → transparent
+        out[pi]=d[pi];out[pi+1]=d[pi+1];out[pi+2]=d[pi+2];out[pi+3]=0;
+      } else if(mask[i]===1){
+        // Definite foreground → fully opaque
+        out[pi]=d[pi];out[pi+1]=d[pi+1];out[pi+2]=d[pi+2];out[pi+3]=255;
+      } else {
+        // Feather zone (was dilated but not in original fg mask)
+        // Compute distance to nearest fg pixel for soft alpha
+        let minDist=fr+1;
+        for(let dy=-fr;dy<=fr&&minDist>1;dy++){
+          for(let dx=-fr;dx<=fr;dx++){
+            const nx=x+dx,ny=y+dy;
+            if(nx>=0&&nx<w&&ny>=0&&ny<h&&mask[ny*w+nx]===1){
+              const dist=Math.sqrt(dx*dx+dy*dy);
+              if(dist<minDist)minDist=dist;
+            }
+          }
+        }
+        const alpha=Math.round((minDist/fr)*255);
+        out[pi]=d[pi];out[pi+1]=d[pi+1];out[pi+2]=d[pi+2];out[pi+3]=Math.min(255,alpha);
+      }
+    }
+  }
+  return new ImageData(out,w,h);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 const THEMES = {
   win97: {
@@ -363,21 +583,256 @@ function WinSelect({t,value,onChange,options}){
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOM SLIDER
+// Fully styled — no browser default appearance. Dual-gradient fill track.
+// ─────────────────────────────────────────────────────────────────────────────
 function SliderRow({t,label,value,min,max,onChange,step=1}){
+  const isWin=t.id==="win97";
+  const trackRef=useRef(null);
+  const pct=((value-min)/(max-min))*100;
+
+  const handleTrackClick=useCallback((e)=>{
+    const rect=trackRef.current.getBoundingClientRect();
+    const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    onChange(Math.round((min+ratio*(max-min))/step)*step);
+  },[min,max,step,onChange]);
+
+  const handleDrag=useCallback((e)=>{
+    if(e.buttons!==1)return;
+    const rect=trackRef.current.getBoundingClientRect();
+    const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    onChange(Math.round((min+ratio*(max-min))/step)*step);
+  },[min,max,step,onChange]);
+
+  const accentFill=isWin?"#000080":"#555555";
+  const trackBg=isWin?"#ffffff":"#d0d0d0";
+  const thumbBg=isWin?"#c0c0c0":"#f0f0f0";
+  const thumbSize=isWin?12:13;
+  const trackH=isWin?4:5;
+
   return(
-    <div style={{marginBottom:6}}>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-        <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font}}>{label}</span>
+    <div style={{marginBottom:7,userSelect:"none"}}>
+      {/* Label + value */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+        <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font,lineHeight:1}}>{label}</span>
+        <div style={{display:"flex",alignItems:"center",gap:0}}>
+          <input type="number" value={value} min={min} max={max} step={step}
+            onChange={e=>{const v=Number(e.target.value);if(!isNaN(v))onChange(Math.max(min,Math.min(max,v)));}}
+            style={{width:36,textAlign:"right",fontFamily:t.font,fontSize:t.fontSize-1,
+              background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
+              padding:"1px 3px",color:t.labelColor,cursor:t.cursors.text,
+              outline:"none",border:isWin?`1px inset #808080`:"1px solid #aaa",
+              MozAppearance:"textfield"}}/>
+        </div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:6}}>
-        <input type="range" min={min} max={max} step={step} value={value}
-          onChange={e=>onChange(Number(e.target.value))}
-          style={{flex:1,cursor:t.cursors.pointer,accentColor:t.sliderAccent,height:16}}/>
-        <input type="number" value={value} min={min} max={max} step={step}
-          onChange={e=>onChange(Number(e.target.value))}
-          style={{width:38,textAlign:"center",fontFamily:t.font,fontSize:t.fontSize-1,
+      {/* Track */}
+      <div ref={trackRef} onClick={handleTrackClick} onMouseMove={handleDrag}
+        style={{position:"relative",height:thumbSize+4,display:"flex",
+          alignItems:"center",cursor:t.cursors.pointer}}>
+        {/* Track bg */}
+        <div style={{
+          position:"absolute",left:0,right:0,height:trackH,
+          background:trackBg,
+          ...(isWin
+            ?{borderTop:`1px solid #808080`,borderLeft:`1px solid #808080`,
+               borderBottom:`1px solid #fff`,borderRight:`1px solid #fff`}
+            :{borderRadius:3,border:"1px solid #bbb",overflow:"hidden"}),
+        }}>
+          {/* Fill */}
+          <div style={{
+            position:"absolute",left:0,top:0,bottom:0,
+            width:`${pct}%`,
+            background:accentFill,
+            borderRadius:isWin?0:"3px 0 0 3px",
+          }}/>
+        </div>
+        {/* Thumb */}
+        <div style={{
+          position:"absolute",
+          left:`calc(${pct}% - ${thumbSize/2}px)`,
+          width:thumbSize,height:thumbSize,
+          background:thumbBg,
+          cursor:t.cursors.grab,
+          flexShrink:0,
+          ...(isWin
+            ?{borderTop:"2px solid #fff",borderLeft:"2px solid #fff",
+               borderRight:"2px solid #808080",borderBottom:"2px solid #808080"}
+            :{borderRadius:"50%",
+               border:"1px solid #999",
+               boxShadow:"0 1px 3px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.8)"}),
+          zIndex:1,
+          transition:"left 0.05s",
+        }}/>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLOR PICKER  (HSV square + hue bar + hex input)
+// ─────────────────────────────────────────────────────────────────────────────
+function rgbToHsv(r,g,b){
+  r/=255;g/=255;b/=255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;
+  let h=0,s=max===0?0:d/max,v=max;
+  if(d!==0){
+    if(max===r)h=((g-b)/d)%6;
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h=Math.round(h*60);if(h<0)h+=360;
+  }
+  return[h,s,v];
+}
+function hsvToRgb(h,s,v){
+  const f=(n)=>{const k=(n+h/60)%6;return v-v*s*Math.max(0,Math.min(k,4-k,1));};
+  return[Math.round(f(5)*255),Math.round(f(3)*255),Math.round(f(1)*255)];
+}
+function rgbToHex(r,g,b){return`#${[r,g,b].map(c=>c.toString(16).padStart(2,"0")).join("")}`;}
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return isNaN(r)?null:[r,g,b];
+}
+
+function ColorPicker({t,rgb,onChange}){
+  const isWin=t.id==="win97";
+  const [hue,sat,val]=rgbToHsv(...rgb);
+  const [draggingSv,setDraggingSv]=useState(false);
+  const [draggingH, setDraggingH]=useState(false);
+  const [hexInput,setHexInput]=useState(rgbToHex(...rgb));
+  const svRef=useRef(null);
+  const hRef=useRef(null);
+
+  // Keep hex input in sync when rgb changes externally
+  useEffect(()=>{ setHexInput(rgbToHex(...rgb)); },[rgb[0],rgb[1],rgb[2]]);
+
+  const hueColor=`hsl(${hue},100%,50%)`;
+
+  const pickSv=useCallback((e)=>{
+    const rect=svRef.current.getBoundingClientRect();
+    const s=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    const v=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+    onChange(hsvToRgb(hue,s,v));
+  },[hue,onChange]);
+
+  const pickH=useCallback((e)=>{
+    const rect=hRef.current.getBoundingClientRect();
+    const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    const newH=Math.round(ratio*360);
+    onChange(hsvToRgb(newH,sat,val));
+  },[sat,val,onChange]);
+
+  useEffect(()=>{
+    const mv=(e)=>{
+      if(draggingSv){e.preventDefault();pickSv(e);}
+      if(draggingH){e.preventDefault();pickH(e);}
+    };
+    const up=()=>{setDraggingSv(false);setDraggingH(false);};
+    window.addEventListener("mousemove",mv);
+    window.addEventListener("mouseup",up);
+    return()=>{window.removeEventListener("mousemove",mv);window.removeEventListener("mouseup",up);};
+  },[draggingSv,draggingH,pickSv,pickH]);
+
+  const border=isWin
+    ?{borderTop:"2px solid #808080",borderLeft:"2px solid #808080",
+       borderRight:"2px solid #fff",borderBottom:"2px solid #fff"}
+    :{border:"1px solid #999",borderRadius:2};
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:6,
+      padding:8,...(isWin?raisedBorder(t):{border:"1px solid #aaa",borderRadius:4}),
+      background:t.windowBg}}>
+
+      {/* SV square */}
+      <div ref={svRef}
+        onMouseDown={e=>{setDraggingSv(true);pickSv(e);}}
+        style={{position:"relative",width:"100%",height:120,
+          background:hueColor,cursor:"crosshair",flexShrink:0,...border}}>
+        {/* White L→R overlay */}
+        <div style={{position:"absolute",inset:0,
+          background:"linear-gradient(to right,#fff,transparent)"}}/>
+        {/* Black T→B overlay */}
+        <div style={{position:"absolute",inset:0,
+          background:"linear-gradient(to bottom,transparent,#000)"}}/>
+        {/* Crosshair */}
+        <div style={{
+          position:"absolute",
+          left:`calc(${sat*100}% - 6px)`,
+          top:`calc(${(1-val)*100}% - 6px)`,
+          width:12,height:12,
+          border:`2px solid ${val>0.4?"#fff":"#888"}`,
+          borderRadius:"50%",
+          boxShadow:"0 0 0 1px rgba(0,0,0,0.4)",
+          pointerEvents:"none",
+        }}/>
+      </div>
+
+      {/* Hue bar */}
+      <div ref={hRef}
+        onMouseDown={e=>{setDraggingH(true);pickH(e);}}
+        style={{position:"relative",height:14,cursor:"ew-resize",flexShrink:0,
+          background:"linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)",
+          ...border}}>
+        {/* Thumb */}
+        <div style={{
+          position:"absolute",
+          left:`calc(${(hue/360)*100}% - 5px)`,top:-2,
+          width:10,height:18,
+          background:hueColor,
+          border:`2px solid #fff`,
+          boxShadow:"0 0 0 1px rgba(0,0,0,0.5)",
+          borderRadius:isWin?0:2,
+          pointerEvents:"none",
+        }}/>
+      </div>
+
+      {/* Preview + hex input row */}
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        {/* Swatch preview */}
+        <div style={{
+          width:28,height:22,flexShrink:0,
+          background:rgbToHex(...rgb),
+          ...border,
+        }}/>
+        {/* Hex input */}
+        <input value={hexInput}
+          onChange={e=>{
+            setHexInput(e.target.value);
+            const parsed=hexToRgb(e.target.value.startsWith("#")?e.target.value:"#"+e.target.value);
+            if(parsed)onChange(parsed);
+          }}
+          onBlur={()=>setHexInput(rgbToHex(...rgb))}
+          style={{flex:1,fontFamily:"monospace",fontSize:11,
             background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
-            padding:"1px 0",color:t.labelColor,cursor:t.cursors.text,outline:"none"}}/>
+            padding:"2px 4px",color:t.labelColor,outline:"none",
+            border:isWin?"1px inset #808080":"1px solid #aaa",
+            cursor:t.cursors.text,letterSpacing:"0.05em"}}/>
+        {/* RGB readout */}
+        <span style={{fontSize:9,fontFamily:"monospace",color:"#888",
+          whiteSpace:"nowrap",lineHeight:1.4,textAlign:"right"}}>
+          {rgb[0]}<br/>{rgb[1]}<br/>{rgb[2]}
+        </span>
+      </div>
+
+      {/* Quick neon swatches */}
+      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+        {Object.entries(NEON_COLORS).map(([name,[r,g,b]])=>(
+          <div key={name} title={name}
+            onClick={()=>onChange([r,g,b])}
+            style={{
+              width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
+              background:rgbToHex(r,g,b),
+              ...(JSON.stringify(rgb)===JSON.stringify([r,g,b])
+                ?sunkenBorder(t):raisedBorder(t)),
+              borderRadius:isWin?0:"50%",
+            }}/>
+        ))}
+        <div title="White" onClick={()=>onChange([255,255,255])}
+          style={{width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
+            background:"#ffffff",...raisedBorder(t),borderRadius:isWin?0:"50%"}}/>
+        <div title="Black" onClick={()=>onChange([0,0,0])}
+          style={{width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
+            background:"#000000",...raisedBorder(t),borderRadius:isWin?0:"50%"}}/>
       </div>
     </div>
   );
@@ -424,7 +879,7 @@ function TitleBar({t,title,onMouseDown,onMinimize,onMaximize,onClose}){
             ))}
           </div>
         )}
-        {isWin&&<img src="/ditherboy-icon.svg" style={{width:16,height:16,imageRendering:"pixelated"}} alt="" />}
+        {isWin&&<span style={{fontSize:11,lineHeight:1}}>🎨</span>}
         <span>{title}</span>
       </div>
       {/* Win: control buttons */}
@@ -490,7 +945,7 @@ function Win97Taskbar({t,windowTitle,minimized,onClickTask,time}){
           fontFamily:t.font,fontSize:11,cursor:t.cursors.pointer,
           maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
           outline:"none",color:"#000"}}>
-        <img src="/ditherboy-icon.svg" style={{width:14,height:14,marginRight:4,imageRendering:"pixelated"}} alt="" /> {windowTitle}
+        🎨 {windowTitle}
       </button>
       {/* Clock */}
       <div style={{marginLeft:"auto",...sunkenBorder(t),padding:"1px 8px",fontSize:11,
@@ -533,7 +988,7 @@ function MacMenuBar({t,time}){
 function DesktopIcons({t,onOpenApp}){
   const isWin=t.id==="win97";
   const icons=[
-    {id:"dither",label:"DitherBoy",emoji:"/ditherboy-icon.svg"},
+    {id:"dither",label:"DitherBoy",emoji:"🎨"},
     {id:"mypc",  label:isWin?"My Computer":"Macintosh HD",emoji:isWin?"💻":"🖥"},
     {id:"trash", label:isWin?"Recycle Bin":"Trash",emoji:"🗑"},
     {id:"docs",  label:"Documents",emoji:"📁"},
@@ -552,9 +1007,7 @@ function DesktopIcons({t,onOpenApp}){
             background:selected===ic.id
               ?(isWin?"#000080":"rgba(0,0,128,0.4)")
               :"transparent"}}>
-          {ic.emoji.endsWith(".svg") 
-            ? <img src={ic.emoji} alt={ic.label} style={{width:isWin?24:28,height:isWin?24:28,imageRendering:"pixelated"}} />
-            : <span style={{fontSize:isWin?24:28,lineHeight:1}}>{ic.emoji}</span>}
+          <span style={{fontSize:isWin?24:28,lineHeight:1}}>{ic.emoji}</span>
           <span style={{fontSize:isWin?11:11,fontFamily:t.font,
             color:selected===ic.id?"#fff":"#fff",
             textShadow:"0 1px 3px rgba(0,0,0,0.8)",
@@ -619,6 +1072,17 @@ export default function DitherBoy(){
   const [contrast,     setContrast]     = useState(0);
   const [saturation,   setSaturation]   = useState(0);
   const [scale,        setScale]        = useState(1);
+  const [neonColor,    setNeonColor]    = useState([0,220,240]); // custom neon RGB
+
+  // Background removal state
+  const [bgRemoved,      setBgRemoved]      = useState(false);
+  const [bgRemoving,     setBgRemoving]     = useState(false);
+  const [bgThreshold,    setBgThreshold]    = useState(32);
+  const [bgReplaceFill,  setBgReplaceFill]  = useState("transparent"); // transparent|black|white|custom
+  const [bgCustomColor,  setBgCustomColor]  = useState("#ffffff");
+  const [bgRemovedData,  setBgRemovedData]  = useState(null); // ImageData after removal
+  const [showBgPanel,    setShowBgPanel]    = useState(false);
+  const [lastPreset,     setLastPreset]     = useState(null); // name of last applied preset
 
   // Inject global cursor style
   useEffect(()=>{
@@ -641,6 +1105,7 @@ export default function DitherBoy(){
         const id=cv.getContext("2d").getImageData(0,0,w,h);
         setSrcImageData(id);origDataRef.current=id;
         setImgDims({w,h});setShowOriginal(false);
+        setBgRemoved(false);setBgRemovedData(null);setBgRemoving(false);
         setStatus(`Loaded: ${file.name} (${w}×${h})`);
         if(thumbRef.current){const tc=thumbRef.current;tc.width=90;tc.height=68;tc.getContext("2d").drawImage(img,0,0,90,68);}
       };
@@ -650,25 +1115,84 @@ export default function DitherBoy(){
   },[]);
 
   // Live render
-  const settings=useMemo(()=>({category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale}),[category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale]);
+  const settings=useMemo(()=>({category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale,neonColor}),[category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale,neonColor]);
 
+  const handleCat=(cat)=>{setCategory(cat);setMode(MODES[cat][0]);setLastPreset(null);};
+  // Wrap setters so any manual tweak clears the active preset highlight
+  const mkSet=(setter)=>(v)=>{setter(v);setLastPreset(null);};
+
+  const applyPreset=(p)=>{
+    setCategory(p.category);
+    setMode(p.mode);
+    setCellSize(p.cellSize);
+    setDotGain(p.dotGain);
+    setBlackMix(p.blackMix);
+    setBrightness(p.brightness);
+    setContrast(p.contrast);
+    setSaturation(p.saturation);
+    setScale(p.scale);
+    setCyanAngle(p.cyanAngle);
+    setMagentaAngle(p.magentaAngle);
+    setYellowAngle(p.yellowAngle);
+    setBlackAngle(p.blackAngle);
+    setLastPreset(p.name);
+  };
+
+  // ── Background Removal ────────────────────────────────────────────────────
+  const handleRemoveBg=useCallback(async()=>{
+    if(!srcImageData||bgRemoving)return;
+    setBgRemoving(true);
+    setStatus("Removing background…");
+    try{
+      const result=await removeBackground(srcImageData,bgThreshold,3);
+      setBgRemovedData(result);
+      setBgRemoved(true);
+      setStatus("Background removed — dithering with transparent layer");
+    }catch(e){
+      setStatus("BG removal failed: "+e.message);
+    }finally{
+      setBgRemoving(false);
+    }
+  },[srcImageData,bgThreshold,bgRemoving]);
+
+  const handleResetBg=useCallback(()=>{
+    setBgRemoved(false);
+    setBgRemovedData(null);
+    setStatus("Background restored");
+  },[]);
+
+  // Composite bg-removed image with fill colour before dithering
+  // MUST be declared before the render useEffect that consumes it
+  const activeImageData=useMemo(()=>{
+    if(!bgRemoved||!bgRemovedData)return srcImageData;
+    const{width:w,height:h}=bgRemovedData;
+    const tmp=document.createElement("canvas");tmp.width=w;tmp.height=h;
+    const ctx=tmp.getContext("2d");
+    if(bgReplaceFill==="black"){ctx.fillStyle="#000000";ctx.fillRect(0,0,w,h);}
+    else if(bgReplaceFill==="white"){ctx.fillStyle="#ffffff";ctx.fillRect(0,0,w,h);}
+    else if(bgReplaceFill==="custom"){ctx.fillStyle=bgCustomColor;ctx.fillRect(0,0,w,h);}
+    const src2=document.createElement("canvas");src2.width=w;src2.height=h;
+    src2.getContext("2d").putImageData(bgRemovedData,0,0);
+    ctx.drawImage(src2,0,0);
+    return ctx.getImageData(0,0,w,h);
+  },[bgRemoved,bgRemovedData,bgReplaceFill,bgCustomColor,srcImageData]);
+
+  // Render — depends on activeImageData, must come after it
   useEffect(()=>{
-    if(!srcImageData||showOriginal)return;
+    if(!activeImageData||showOriginal)return;
     if(pendingTimer.current)clearTimeout(pendingTimer.current);
     pendingTimer.current=setTimeout(async()=>{
       setIsProcessing(true);setStatus("Rendering…");
       try{
-        const result=await renderDither(srcImageData,settings);
+        const result=await renderDither(activeImageData,settings);
         const cv=canvasRef.current;if(!cv)return;
         cv.width=result.width;cv.height=result.height;
         cv.getContext("2d").putImageData(result,0,0);
-        setStatus(`${result.width}×${result.height} · ${category} · ${mode}`);
+        setStatus(`${result.width}×${result.height} · ${category} · ${mode}${bgRemoved?" · BG removed":""}`);
       }catch(e){setStatus("Error: "+e.message);}
       finally{setIsProcessing(false);}
     },80);
-  },[srcImageData,settings,showOriginal,category,mode]);
-
-  const handleCat=(cat)=>{setCategory(cat);setMode(MODES[cat][0]);};
+  },[activeImageData,settings,showOriginal,category,mode,bgRemoved]);
 
   const handleExport=()=>{
     const cv=canvasRef.current;if(!cv||!srcImageData)return;
@@ -721,6 +1245,12 @@ export default function DitherBoy(){
       <WinBtn t={t} disabled={!srcImageData} onClick={handleToggleOriginal}>
         {showOriginal?"◑ Dithered":"◑ Original"}
       </WinBtn>
+      {/* BG Remove toolbar button */}
+      <WinBtn t={t} disabled={!srcImageData||bgRemoving}
+        onClick={bgRemoved?handleResetBg:handleRemoveBg}
+        style={bgRemoved?{...sunkenBorder(t),background:isWin?"#000080":"#333",color:"#fff"}:{}}>
+        {bgRemoving?"⏳ Removing…":bgRemoved?"✕ Restore BG":"✂ Remove BG"}
+      </WinBtn>
       <select value={exportFmt} onChange={e=>setExportFmt(e.target.value)}
         style={{background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
           padding:"2px 4px",fontSize:t.fontSize,fontFamily:t.font,
@@ -734,27 +1264,37 @@ export default function DitherBoy(){
   );
 
   // ── Sidebar ───────────────────────────────────────────────────────────────────
-  const Sidebar=()=>(
-    <div style={{width:240,background:t.sidebarBg,borderLeft:`1px solid ${t.bDark}`,
-      display:"flex",flexDirection:"column",overflowY:"auto",flexShrink:0,
-      scrollbarWidth:"thin",scrollbarColor:`${t.bDark} ${t.windowBg}`}}>
-      <div style={{padding:"10px",display:"flex",flexDirection:"column",gap:7}}>
+  // Defined as JSX, NOT as a component function — avoids remount (scroll reset) on every render
+  const sidebarRef = useRef(null);
+  const PRESET_GROUPS=[
+    {label:"Neon Glow", items:PRESETS.filter(p=>p.category==="Neon Glow")},
+    {label:"Halftone",  items:PRESETS.filter(p=>p.category==="Halftone")},
+    {label:"Error Diffusion", items:PRESETS.filter(p=>p.category==="Error Diffusion")},
+    {label:"Ordered",   items:PRESETS.filter(p=>p.category==="Ordered")},
+    {label:"Pixel Art", items:PRESETS.filter(p=>p.category==="Pixel Art")},
+  ];
+
+  const sidebarContent = (
+    <div style={{padding:"10px",display:"flex",flexDirection:"column",gap:7}}>
 
         {/* Thumbnail */}
-        <div style={{background:isWin?"#000080":"#333",height:68,...sunkenBorder(t),
+        <div style={{
+          background:isWin?"#000080":"#333",height:68,...sunkenBorder(t),
           borderRadius:t.bRadius,display:"flex",alignItems:"center",
-          justifyContent:"center",overflow:"hidden",flexShrink:0}}>
+          justifyContent:"center",overflow:"hidden",flexShrink:0,
+          backgroundImage:"repeating-conic-gradient(#555 0% 25%,#444 0% 50%)",
+          backgroundSize:"12px 12px"}}>
           {srcImageData
             ?<canvas ref={thumbRef} style={{maxWidth:"100%",maxHeight:"100%",imageRendering:"pixelated"}}/>
-            :<span style={{color:"#666",fontSize:10,fontFamily:t.font}}>No image</span>}
+            :<span style={{color:"#999",fontSize:10,fontFamily:t.font}}>No image</span>}
         </div>
 
         {/* Import/Export */}
         <WinBtn t={t} onClick={()=>fileInputRef.current?.click()} style={{width:"100%"}}>
-          {isWin?"Import":"Import Image"}
+          {isWin?"📂 Import":"⌘ Import Image"}
         </WinBtn>
         <div style={{display:"flex",gap:6}}>
-          <WinBtn t={t} disabled={!srcImageData} onClick={handleExport} style={{flex:1}}>Export</WinBtn>
+          <WinBtn t={t} disabled={!srcImageData} onClick={handleExport} style={{flex:1}}>💾 Export</WinBtn>
           <select value={exportFmt} onChange={e=>setExportFmt(e.target.value)}
             style={{background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
               padding:"2px 4px",fontSize:t.fontSize-1,fontFamily:t.font,
@@ -762,6 +1302,100 @@ export default function DitherBoy(){
             <option>PNG</option><option>JPEG</option>
           </select>
         </div>
+
+        <Divider t={t}/>
+
+        {/* ── Background Removal ──────────────────── */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <SectionLabel t={t}>{isWin?"✂ Background":"BACKGROUND"}</SectionLabel>
+          <button onClick={()=>setShowBgPanel(v=>!v)}
+            style={{fontSize:10,fontFamily:t.font,background:"none",border:"none",
+              cursor:t.cursors.pointer,color:t.labelColor,padding:"0 2px"}}>
+            {showBgPanel?"▲":"▼"}
+          </button>
+        </div>
+
+        {showBgPanel&&<>
+          {/* Remove / Restore button */}
+          <WinBtn t={t} disabled={!srcImageData||bgRemoving}
+            onClick={bgRemoved?handleResetBg:handleRemoveBg}
+            style={{width:"100%",justifyContent:"center",
+              ...(bgRemoved?{...sunkenBorder(t),background:isWin?"#000080":"#333",color:"#fff"}:{})}}>
+            {bgRemoving?"⏳ Processing…":bgRemoved?"✕ Restore Background":"✂ Remove Background"}
+          </WinBtn>
+
+          {/* Sensitivity slider */}
+          <SliderRow t={t} label="Sensitivity" value={bgThreshold} min={5} max={120} onChange={setBgThreshold}/>
+          <div style={{fontSize:9,color:"#888",fontFamily:t.font,marginTop:-4,marginBottom:2}}>
+            ↑ higher = removes more colour variation
+          </div>
+
+          {/* Background fill options (only shown after removal) */}
+          {bgRemoved&&<>
+            <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font,display:"block",marginTop:4}}>Fill removed area with:</span>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              {[
+                {id:"transparent",label:"Transparent",preview:"repeating-conic-gradient(#ccc 0% 25%,#fff 0% 50%)",previewSize:"6px"},
+                {id:"black",      label:"Black",      preview:"#000",previewSize:null},
+                {id:"white",      label:"White",      preview:"#fff",previewSize:null},
+                {id:"custom",     label:"Custom…",    preview:bgCustomColor,previewSize:null},
+              ].map(opt=>(
+                <button key={opt.id} onClick={()=>setBgReplaceFill(opt.id)}
+                  style={{display:"flex",alignItems:"center",gap:5,padding:"3px 5px",
+                    fontFamily:t.font,fontSize:10,cursor:t.cursors.pointer,
+                    background:bgReplaceFill===opt.id?(isWin?"#000080":"#333"):t.btnBg,
+                    color:bgReplaceFill===opt.id?"#fff":t.btnText,
+                    ...(bgReplaceFill===opt.id?sunkenBorder(t):raisedBorder(t)),
+                    borderRadius:t.bRadius,outline:"none"}}>
+                  <div style={{width:12,height:12,flexShrink:0,border:"1px solid #888",
+                    background:opt.preview,backgroundSize:opt.previewSize?`${opt.previewSize} ${opt.previewSize}`:undefined}}/>
+                  <span>{opt.label}</span>
+                </button>
+              ))}
+            </div>
+            {bgReplaceFill==="custom"&&(
+              <div style={{marginTop:4}}>
+                <ColorPicker t={t}
+                  rgb={hexToRgb(bgCustomColor)||[255,255,255]}
+                  onChange={(rgb)=>setBgCustomColor(rgbToHex(...rgb))}/>
+              </div>
+            )}
+          </>}
+        </>}
+
+        <Divider t={t}/>
+
+        {/* ── Presets ─────────────────────────────── */}
+        <SectionLabel t={t}>{isWin?"★ Presets":"PRESETS"}</SectionLabel>
+        {PRESET_GROUPS.map(grp=>(
+          <div key={grp.label}>
+            <div style={{fontSize:9,color:t.bDark,fontFamily:t.font,
+              textTransform:"uppercase",letterSpacing:"0.08em",
+              marginBottom:3,marginTop:2,paddingLeft:1}}>
+              {grp.label}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,marginBottom:6}}>
+              {grp.items.map(p=>{
+                const active=lastPreset===p.name;
+                return(
+                  <button key={p.name} onClick={()=>applyPreset(p)}
+                    style={{display:"flex",alignItems:"center",gap:4,
+                      padding:"3px 5px",fontFamily:t.font,fontSize:10,
+                      cursor:t.cursors.pointer,
+                      background:active?(isWin?"#000080":"#333"):t.btnBg,
+                      color:active?"#fff":t.btnText,
+                      ...(active?sunkenBorder(t):raisedBorder(t)),
+                      borderRadius:t.bRadius,outline:"none",textAlign:"left",
+                      whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+                      lineHeight:1.4}}>
+                    <span style={{fontSize:12,flexShrink:0}}>{p.emoji}</span>
+                    <span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
 
         <Divider t={t}/>
 
@@ -780,7 +1414,7 @@ export default function DitherBoy(){
         <div>
           <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font,display:"block",marginBottom:2}}>Mode</span>
           <div style={{display:"flex",gap:4}}>
-            <WinSelect t={t} value={mode} onChange={setMode} options={MODES[category]}/>
+            <WinSelect t={t} value={mode} onChange={v=>{setMode(v);setLastPreset(null);}} options={MODES[category]}/>
             <WinBtn t={t} onClick={()=>{const ms=MODES[category],i=ms.indexOf(mode);setMode(ms[(i-1+ms.length)%ms.length]);}}>‹</WinBtn>
             <WinBtn t={t} onClick={()=>{const ms=MODES[category],i=ms.indexOf(mode);setMode(ms[(i+1)%ms.length]);}}>›</WinBtn>
           </div>
@@ -792,9 +1426,9 @@ export default function DitherBoy(){
         <SectionLabel t={t}>{isWin?`▼ ${category} Settings`:`▾ ${category.toUpperCase()} SETTINGS`}</SectionLabel>
 
         {category==="Halftone"&&<>
-          <SliderRow t={t} label="Cell Size"  value={cellSize}  min={2}  max={40} onChange={setCellSize}/>
-          <SliderRow t={t} label="Dot Gain"   value={dotGain}   min={0}  max={100} onChange={setDotGain}/>
-          {mode==="CMYK"&&<SliderRow t={t} label="Black Mix" value={blackMix} min={0} max={100} onChange={setBlackMix}/>}
+          <SliderRow t={t} label="Cell Size"  value={cellSize}  min={2}  max={40} onChange={mkSet(setCellSize)}/>
+          <SliderRow t={t} label="Dot Gain"   value={dotGain}   min={0}  max={100} onChange={mkSet(setDotGain)}/>
+          {mode==="CMYK"&&<SliderRow t={t} label="Black Mix" value={blackMix} min={0} max={100} onChange={mkSet(setBlackMix)}/>}
           <div style={{display:"flex",alignItems:"center",gap:6,fontSize:t.fontSize-1,
             color:t.labelColor,fontFamily:t.font,marginBottom:4}}>
             <input type="checkbox" id="phaseOff" style={{accentColor:t.sliderAccent,cursor:t.cursors.pointer}}/>
@@ -802,19 +1436,35 @@ export default function DitherBoy(){
           </div>
           {mode==="CMYK"?(
             <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"center",marginTop:4}}>
-              <Knob t={t} label="Cyan"    value={cyanAngle}    onChange={setCyanAngle}/>
-              <Knob t={t} label="Magenta" value={magentaAngle} onChange={setMagentaAngle}/>
-              <Knob t={t} label="Yellow"  value={yellowAngle}  onChange={setYellowAngle}/>
-              <Knob t={t} label="Black"   value={blackAngle}   onChange={setBlackAngle}/>
+              <Knob t={t} label="Cyan"    value={cyanAngle}    onChange={mkSet(setCyanAngle)}/>
+              <Knob t={t} label="Magenta" value={magentaAngle} onChange={mkSet(setMagentaAngle)}/>
+              <Knob t={t} label="Yellow"  value={yellowAngle}  onChange={mkSet(setYellowAngle)}/>
+              <Knob t={t} label="Black"   value={blackAngle}   onChange={mkSet(setBlackAngle)}/>
             </div>
           ):(
             <div style={{display:"flex",justifyContent:"center"}}>
-              <Knob t={t} label="Angle" value={blackAngle} onChange={setBlackAngle}/>
+              <Knob t={t} label="Angle" value={blackAngle} onChange={mkSet(setBlackAngle)}/>
             </div>
           )}
         </>}
 
-        {category!=="Halftone"&&(
+        {category==="Neon Glow"&&<>
+          <SliderRow t={t} label="Cell Size" value={cellSize} min={2} max={40} onChange={mkSet(setCellSize)}/>
+          <SliderRow t={t} label="Dot Gain"  value={dotGain}  min={0} max={100} onChange={mkSet(setDotGain)}/>
+          <div style={{display:"flex",justifyContent:"center",marginTop:4}}>
+            <Knob t={t} label="Angle" value={blackAngle} onChange={mkSet(setBlackAngle)}/>
+          </div>
+          {/* Neon colour picker */}
+          <div style={{marginTop:4}}>
+            <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font,
+              display:"block",marginBottom:6}}>Glow Color</span>
+            <ColorPicker t={t} rgb={
+              mode==="Custom"?neonColor:(NEON_COLORS[mode]||NEON_COLORS.Cyan)
+            } onChange={(rgb)=>{setNeonColor(rgb);setMode("Custom");}}/>
+          </div>
+        </>}
+
+        {category!=="Halftone"&&category!=="Neon Glow"&&(
           <div style={{fontSize:t.fontSize-1,color:"#777",fontStyle:"italic",fontFamily:t.font}}>
             {category} · {mode}
           </div>
@@ -824,10 +1474,10 @@ export default function DitherBoy(){
 
         {/* Adjustments */}
         <SectionLabel t={t}>{isWin?"▼ Adjustments":"▾ ADJUSTMENTS"}</SectionLabel>
-        <SliderRow t={t} label="Brightness" value={brightness} min={-100} max={100} onChange={setBrightness}/>
-        <SliderRow t={t} label="Contrast"   value={contrast}   min={-100} max={100} onChange={setContrast}/>
-        <SliderRow t={t} label="Saturation" value={saturation} min={-100} max={100} onChange={setSaturation}/>
-        <SliderRow t={t} label="Downscale"  value={scale}      min={1}    max={8}   onChange={setScale}/>
+        <SliderRow t={t} label="Brightness" value={brightness} min={-100} max={100} onChange={mkSet(setBrightness)}/>
+        <SliderRow t={t} label="Contrast"   value={contrast}   min={-100} max={100} onChange={mkSet(setContrast)}/>
+        <SliderRow t={t} label="Saturation" value={saturation} min={-100} max={100} onChange={mkSet(setSaturation)}/>
+        <SliderRow t={t} label="Downscale"  value={scale}      min={1}    max={8}   onChange={mkSet(setScale)}/>
 
         <Divider t={t}/>
 
@@ -840,8 +1490,7 @@ export default function DitherBoy(){
           <div>Mode: <b>{mode}</b></div>
         </div>
       </div>
-    </div>
-  );
+  ); // end sidebarContent
 
   // ── Status Bar ────────────────────────────────────────────────────────────────
   const StatusBar=()=>(
@@ -972,7 +1621,13 @@ export default function DitherBoy(){
               )}
             </div>
 
-            <Sidebar/>
+            {/* ── Sidebar (inlined — no const wrapper to avoid remount on every render) ── */}
+            <div ref={sidebarRef}
+              style={{width:252,background:t.sidebarBg,borderLeft:`1px solid ${t.bDark}`,
+              display:"flex",flexDirection:"column",overflowY:"auto",flexShrink:0,
+              scrollbarWidth:"thin",scrollbarColor:`${t.bDark} ${t.windowBg}`}}>
+              {sidebarContent}
+            </div>
           </div>
 
           <StatusBar/>
