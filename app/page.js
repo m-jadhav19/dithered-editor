@@ -497,30 +497,6 @@ function Knob({label,value,onChange,t}){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// THEME TOGGLE
-// ─────────────────────────────────────────────────────────────────────────────
-function ThemeToggle({t,onToggle}){
-  const isWin=t.id==="win97";
-  return(
-    <div onClick={onToggle}
-      style={{display:"flex",alignItems:"center",gap:6,padding:"0 6px",userSelect:"none",
-        cursor:t.cursors.pointer}}>
-      <span style={{fontSize:9,fontFamily:t.font,fontWeight:"bold",letterSpacing:"0.05em",
-        color:isWin?"#fff":"rgba(0,0,0,0.5)",textShadow:isWin?"0 1px 2px rgba(0,0,0,0.6)":"none",
-        opacity:isWin?1:0.5}}>WIN</span>
-      <div style={{width:44,height:20,borderRadius:10,position:"relative",
-        background:isWin?"#000080":"#555",...sunkenBorder(t),transition:"background 0.2s"}}>
-        <div style={{position:"absolute",top:2,left:isWin?2:22,width:14,height:14,
-          borderRadius:"50%",background:isWin?"#ffffff":"#dddddd",
-          ...raisedBorder(t),transition:"left 0.18s cubic-bezier(.4,0,.2,1)"}}/>
-      </div>
-      <span style={{fontSize:9,fontFamily:t.font,fontWeight:"bold",letterSpacing:"0.05em",
-        color:isWin?"rgba(0,0,0,0.4)":"#000",opacity:isWin?0.45:1}}>MAC</span>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SHARED UI ATOMS
 // ─────────────────────────────────────────────────────────────────────────────
 const EMPTY_STYLE={};
@@ -951,29 +927,45 @@ function MacMenuBar({t,time}){
   );
 }
 
-function DesktopIcons({t,onOpenApp}){
+function DesktopIcons({t,onOpenApp,onToggleTheme}){
   const isWin=t.id==="win97";
   const icons=isWin?DESKTOP_ICONS_WIN:DESKTOP_ICONS_MAC;
   const [selected,setSelected]=useState(null);
+
   return(
     <div style={{position:"absolute",top:isWin?8:28,right:8,display:"flex",
       flexDirection:"column",gap:isWin?4:8,alignItems:"center"}}>
-      {icons.map(ic=>(
-        <div key={ic.id}
-          onClick={()=>setSelected(ic.id)}
-          onDoubleClick={()=>{if(ic.id==="dither")onOpenApp();}}
-          style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,
-            padding:"4px 6px",borderRadius:isWin?0:4,userSelect:"none",
-            cursor:t.cursors.pointer,
-            background:selected===ic.id?(isWin?"#000080":"rgba(0,0,128,0.4)"):"transparent"}}>
-          <span style={{fontSize:isWin?24:28,lineHeight:1}}>{ic.emoji}</span>
-          <span style={{fontSize:11,fontFamily:t.font,color:"#fff",
-            textShadow:"0 1px 3px rgba(0,0,0,0.8)",
-            textAlign:"center",maxWidth:64,wordBreak:"break-word",lineHeight:1.2}}>
-            {ic.label}
-          </span>
-        </div>
-      ))}
+      {icons.map(ic=>{
+        const isMyPc=ic.id==="mypc";
+        return(
+          <div key={ic.id}
+            title={isMyPc?(isWin?"Double-click to switch to Mac OS 8":"Double-click to switch to Windows 97"):undefined}
+            onClick={()=>setSelected(ic.id)}
+            onDoubleClick={()=>{
+              if(ic.id==="dither")onOpenApp();
+              if(ic.id==="mypc")onToggleTheme();
+            }}
+            style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+              padding:"4px 6px",borderRadius:isWin?0:4,userSelect:"none",
+              cursor:t.cursors.pointer,
+              background:selected===ic.id?(isWin?"#000080":"rgba(0,0,128,0.4)"):"transparent"}}>
+            <span style={{fontSize:isWin?24:28,lineHeight:1}}>{ic.emoji}</span>
+            <span style={{fontSize:11,fontFamily:t.font,color:"#fff",
+              textShadow:"0 1px 3px rgba(0,0,0,0.8)",
+              textAlign:"center",maxWidth:64,wordBreak:"break-word",lineHeight:1.2}}>
+              {ic.label}
+            </span>
+            {/* Subtle hint under the My Computer icon only */}
+            {isMyPc&&(
+              <span style={{fontSize:9,fontFamily:t.font,lineHeight:1.1,marginTop:1,
+                color:"rgba(255,255,255,0.45)",textShadow:"0 1px 2px rgba(0,0,0,0.7)",
+                textAlign:"center"}}>
+                {isWin?"→ Mac OS":"→ Win 97"}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1088,8 +1080,6 @@ export default function DitherBoy(){
     dispatchDs({category:cat,mode:MODES[cat][0]});
     setLastPreset(null);
   },[]);
-  // mkSet: stable — takes a key string, returns a setter function
-  const mkSet=useCallback((key)=>(v)=>{dispatchDs({[key]:v});setLastPreset(null);},[]);
 
   const applyPreset=useCallback((p)=>{
     dispatchDs({
@@ -1320,7 +1310,10 @@ export default function DitherBoy(){
       </select>
       {isWin?<div style={{width:2,height:22,borderLeft:`1px solid ${t.bDark}`,borderRight:`1px solid ${t.bLight}`,margin:"0 2px"}}/>
             :<div style={{width:1,height:20,background:"#bbb",margin:"0 2px"}}/>}
-      <div style={{marginLeft:"auto"}}><ThemeToggle t={t} onToggle={toggleTheme}/></div>
+      <span style={{marginLeft:"auto",fontSize:9,fontFamily:t.font,color:t.bDark,
+        whiteSpace:"nowrap",letterSpacing:"0.04em",opacity:0.7}}>
+        {isWin?"Windows 97":"Mac OS 8"}
+      </span>
     </div>
   );
 
@@ -1637,7 +1630,7 @@ export default function DitherBoy(){
       {!isWin&&<MacMenuBar t={t} time={time}/>}
 
       {/* Desktop icons */}
-      <DesktopIcons t={t} onOpenApp={()=>setMinimized(false)}/>
+      <DesktopIcons t={t} onOpenApp={()=>setMinimized(false)} onToggleTheme={toggleTheme}/>
 
       {/* Desktop watermark */}
       <div style={{position:"absolute",bottom:isWin?36:6,left:8,
