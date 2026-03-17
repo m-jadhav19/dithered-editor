@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, useReducer } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CUSTOM CURSORS  (inline SVG → data-URI)
@@ -113,6 +113,17 @@ const PRESETS = [
     cyanAngle:15, magentaAngle:75, yellowAngle:45, blackAngle:45 },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PRESET_GROUPS — computed once at module level, not inside render
+// ─────────────────────────────────────────────────────────────────────────────
+const PRESET_GROUPS=[
+  {label:"Neon Glow", items:PRESETS.filter(p=>p.category==="Neon Glow")},
+  {label:"Halftone",  items:PRESETS.filter(p=>p.category==="Halftone")},
+  {label:"Error Diffusion", items:PRESETS.filter(p=>p.category==="Error Diffusion")},
+  {label:"Ordered",   items:PRESETS.filter(p=>p.category==="Ordered")},
+  {label:"Pixel Art", items:PRESETS.filter(p=>p.category==="Pixel Art")},
+];
+
 const BAYER = {
   2:[[0,2],[3,1]],
   4:[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]],
@@ -122,8 +133,10 @@ const BAYER = {
 function nearestColor(r,g,b,palette){
   let best=0,bestD=Infinity;
   for(let i=0;i<palette.length;i++){
-    const[pr,pg,pb]=palette[i];const d=(r-pr)**2+(g-pg)**2+(b-pb)**2;
-    if(d<bestD){bestD=d;best=i;}
+    const[pr,pg,pb]=palette[i];
+    // Use squared distance — avoids sqrt, same ordering
+    const d=(r-pr)**2+(g-pg)**2+(b-pb)**2;
+    if(d<bestD){bestD=d;best=i;if(d===0)break;} // early exit on exact match
   }
   return palette[best];
 }
@@ -131,6 +144,8 @@ function nearestColor(r,g,b,palette){
 function halftoneChannel(d,w,h,ch,angle,cellSize,dotGain){
   const rad=angle*Math.PI/180,cos=Math.cos(rad),sin=Math.sin(rad);
   const out=new Uint8Array(w*h);
+  const gainMul=1+dotGain/100;
+  const halfCell=cellSize/2;
   for(let y=0;y<h;y++){
     for(let x=0;x<w;x++){
       const rx=cos*x-sin*y,ry=sin*x+cos*y;
@@ -138,9 +153,11 @@ function halftoneChannel(d,w,h,ch,angle,cellSize,dotGain){
       const ox=cos*cx2+sin*cy2,oy=-sin*cx2+cos*cy2;
       const nx=Math.min(w-1,Math.max(0,Math.round(ox))),ny=Math.min(h-1,Math.max(0,Math.round(oy)));
       const v=d[(ny*w+nx)*4+ch]/255;
-      const r2=Math.sqrt((x-ox)**2+(y-oy)**2);
-      const radius=(cellSize/2)*Math.sqrt(1-v)*(1+dotGain/100);
-      out[y*w+x]=r2<=radius?0:255;
+      // Use squared comparison — avoids sqrt per pixel
+      const dx=x-ox,dy=y-oy;
+      const dist2=dx*dx+dy*dy;
+      const radius=halfCell*Math.sqrt(1-v)*gainMul; // sqrt only once per cell center sample
+      out[y*w+x]=dist2<=(radius*radius)?0:255;
     }
   }
   return out;
@@ -203,38 +220,38 @@ async function renderDither(srcID,settings){
       out[(y*sw+x)*4]=nc[0];out[(y*sw+x)*4+1]=nc[1];out[(y*sw+x)*4+2]=nc[2];out[(y*sw+x)*4+3]=255;
     }}
   } else if(category==="Neon Glow"){
-    // Neon Glow: black bg, single vivid neon hue, halftone dot density = luminance
-    // Bright areas → large dots, dark areas → tiny/no dots (opposite of print halftone)
     const [nr,ng,nb] = (mode==="Custom" && neonColor) ? neonColor : (NEON_COLORS[mode]||NEON_COLORS.Cyan);
-    // Convert to greyscale luminance
+    const gainMul=1+dotGain/100;
+    const halfCell=cellSize/2;
+    // Convert to greyscale luminance in-place
     for(let i=0;i<sw*sh;i++){
       const lum=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
       d[i*4]=d[i*4+1]=d[i*4+2]=lum;d[i*4+3]=255;
     }
-    // Halftone pass — but invert: dot present where bright (lum high = dot)
     const angle=blackAngle;
-    const rad=angle*Math.PI/180,cos=Math.cos(rad),sin=Math.sin(rad);
+    const rad2=angle*Math.PI/180,cos=Math.cos(rad2),sin=Math.sin(rad2);
     for(let y=0;y<sh;y++){
       for(let x=0;x<sw;x++){
         const rx=cos*x-sin*y,ry=sin*x+cos*y;
         const cx2=Math.round(rx/cellSize)*cellSize,cy2=Math.round(ry/cellSize)*cellSize;
         const ox=cos*cx2+sin*cy2,oy=-sin*cx2+cos*cy2;
         const nx2=Math.min(sw-1,Math.max(0,Math.round(ox))),ny2=Math.min(sh-1,Math.max(0,Math.round(oy)));
-        const lum=d[(ny2*sw+nx2)*4]/255; // 0=dark,1=bright
-        const dist=Math.sqrt((x-ox)**2+(y-oy)**2);
-        // radius proportional to luminance (bright = big dot)
-        const radius=(cellSize/2)*Math.sqrt(lum)*(1+dotGain/100);
-        if(dist<=radius){
-          // Intensity falls off slightly toward dot edge for smooth glow feel
-          const edgeFade=Math.pow(1-(dist/Math.max(radius,0.001)),0.4);
+        const lum=d[(ny2*sw+nx2)*4]/255;
+        const ddx=x-ox,ddy=y-oy;
+        const dist2=ddx*ddx+ddy*ddy;
+        const radius=halfCell*Math.sqrt(lum)*gainMul;
+        const r2=radius*radius;
+        if(dist2<=r2){
+          const edgeFade=Math.pow(1-(Math.sqrt(dist2)/Math.max(radius,0.001)),0.4);
           const bright=Math.min(255,Math.round(lum*255*edgeFade));
-          out[(y*sw+x)*4  ]=Math.round(nr*bright/255);
-          out[(y*sw+x)*4+1]=Math.round(ng*bright/255);
-          out[(y*sw+x)*4+2]=Math.round(nb*bright/255);
-          out[(y*sw+x)*4+3]=255;
+          const pi=(y*sw+x)*4;
+          out[pi  ]=Math.round(nr*bright/255);
+          out[pi+1]=Math.round(ng*bright/255);
+          out[pi+2]=Math.round(nb*bright/255);
+          out[pi+3]=255;
         } else {
-          // Pure black background
-          out[(y*sw+x)*4]=out[(y*sw+x)*4+1]=out[(y*sw+x)*4+2]=0;out[(y*sw+x)*4+3]=255;
+          const pi=(y*sw+x)*4;
+          out[pi]=out[pi+1]=out[pi+2]=0;out[pi+3]=255;
         }
       }
     }
@@ -292,6 +309,17 @@ async function removeBackgroundML(srcID, onProgress){
     img.src=url;
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DITHER DEFAULTS — module-level so it's never recreated
+// ─────────────────────────────────────────────────────────────────────────────
+const DITHER_DEFAULTS = {
+  category:"Halftone", mode:"CMYK",
+  cellSize:10, dotGain:20, blackMix:61,
+  cyanAngle:333, magentaAngle:19, yellowAngle:317, blackAngle:45,
+  brightness:0, contrast:0, saturation:0, scale:1,
+  neonColor:[0,220,240],
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 const THEMES = {
@@ -364,15 +392,19 @@ function sunkenBorder(t){
 // ─────────────────────────────────────────────────────────────────────────────
 function useDrag(initial){
   const [pos,setPos]=useState(initial);
+  const posRef=useRef(initial);
+  posRef.current=pos;            // sync update during render — no useEffect lag
   const dragging=useRef(false);
   const off=useRef({x:0,y:0});
+
   const onMouseDown=useCallback((e)=>{
     if(e.button!==0)return;
     if(e.target.closest("button,input,select,a,label"))return;
     dragging.current=true;
-    off.current={x:e.clientX-pos.x,y:e.clientY-pos.y};
+    off.current={x:e.clientX-posRef.current.x,y:e.clientY-posRef.current.y};
     e.preventDefault();
-  },[pos]);
+  },[]);
+
   useEffect(()=>{
     const mv=(e)=>{
       if(!dragging.current)return;
@@ -396,12 +428,16 @@ function useResize(initialW,initialH){
   const [size,setSize]=useState({w:initialW,h:initialH});
   const resizing=useRef(false);
   const start=useRef({x:0,y:0,w:0,h:0});
+  const sizeRef=useRef({w:initialW,h:initialH});
+  sizeRef.current=size;          // sync update during render
+
   const onResizeDown=useCallback((e)=>{
     if(e.button!==0)return;
     resizing.current=true;
-    start.current={x:e.clientX,y:e.clientY,w:size.w,h:size.h};
+    start.current={x:e.clientX,y:e.clientY,w:sizeRef.current.w,h:sizeRef.current.h};
     e.preventDefault();e.stopPropagation();
-  },[size]);
+  },[]);
+
   useEffect(()=>{
     const mv=(e)=>{
       if(!resizing.current)return;
@@ -421,17 +457,26 @@ function useResize(initialW,initialH){
 // ─────────────────────────────────────────────────────────────────────────────
 function Knob({label,value,onChange,t}){
   const dragging=useRef(false),startY=useRef(0),startVal=useRef(0);
+  const onChangeRef=useRef(onChange);
+  onChangeRef.current=onChange; // sync — always latest, no stale closure
   const norm=((value%360)+360)%360/360;
   const angle=norm*300-150,rad=angle*Math.PI/180;
   const cx=18,cy=18,r=12;
   const dotX=cx+r*0.7*Math.sin(rad),dotY=cy-r*0.7*Math.cos(rad);
-  const onMD=(e)=>{dragging.current=true;startY.current=e.clientY;startVal.current=value;e.preventDefault();e.stopPropagation();};
+  const onMD=useCallback((e)=>{
+    dragging.current=true;startY.current=e.clientY;startVal.current=value;
+    e.preventDefault();e.stopPropagation();
+  },[value]);
   useEffect(()=>{
-    const mv=(e)=>{if(!dragging.current)return;const dy=startY.current-e.clientY;onChange(((Math.round(startVal.current+dy*2.4))%360+360)%360);};
+    const mv=(e)=>{
+      if(!dragging.current)return;
+      const dy=startY.current-e.clientY;
+      onChangeRef.current(((Math.round(startVal.current+dy*2.4))%360+360)%360);
+    };
     const up=()=>{dragging.current=false;};
     window.addEventListener("mousemove",mv);window.addEventListener("mouseup",up);
     return()=>{window.removeEventListener("mousemove",mv);window.removeEventListener("mouseup",up);};
-  },[onChange]);
+  },[]); // ← registered once; reads latest onChange via onChangeRef
   return(
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
       <span style={{fontSize:10,color:t.labelColor,fontFamily:t.font,whiteSpace:"nowrap"}}>{label}</span>
@@ -478,7 +523,8 @@ function ThemeToggle({t,onToggle}){
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED UI ATOMS
 // ─────────────────────────────────────────────────────────────────────────────
-function WinBtn({t,onClick,disabled=false,children,style={}}){
+const EMPTY_STYLE={};
+function WinBtn({t,onClick,disabled=false,children,style=EMPTY_STYLE}){
   const [pressed,setPressed]=useState(false);
   const border=pressed?sunkenBorder(t):raisedBorder(t);
   return(
@@ -518,20 +564,24 @@ function WinSelect({t,value,onChange,options}){
 function SliderRow({t,label,value,min,max,onChange,step=1}){
   const isWin=t.id==="win97";
   const trackRef=useRef(null);
+  const rectCache=useRef(null); // cached on mousedown, cleared on mouseup
   const pct=((value-min)/(max-min))*100;
 
-  const handleTrackClick=useCallback((e)=>{
-    const rect=trackRef.current.getBoundingClientRect();
+  const valueFromEvent=useCallback((e)=>{
+    const rect=rectCache.current||trackRef.current.getBoundingClientRect();
     const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-    onChange(Math.round((min+ratio*(max-min))/step)*step);
-  },[min,max,step,onChange]);
+    return Math.round((min+ratio*(max-min))/step)*step;
+  },[min,max,step]);
 
-  const handleDrag=useCallback((e)=>{
-    if(e.buttons!==1)return;
-    const rect=trackRef.current.getBoundingClientRect();
-    const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-    onChange(Math.round((min+ratio*(max-min))/step)*step);
-  },[min,max,step,onChange]);
+  const handleMouseDown=useCallback((e)=>{
+    if(e.button!==0)return;
+    rectCache.current=trackRef.current.getBoundingClientRect();
+    onChange(valueFromEvent(e));
+    const mv=(e2)=>{if(e2.buttons!==1){up();return;}onChange(valueFromEvent(e2));};
+    const up=()=>{rectCache.current=null;window.removeEventListener("mousemove",mv);window.removeEventListener("mouseup",up);};
+    window.addEventListener("mousemove",mv);
+    window.addEventListener("mouseup",up);
+  },[onChange,valueFromEvent]);
 
   const accentFill=isWin?"#000080":"#555555";
   const trackBg=isWin?"#ffffff":"#d0d0d0";
@@ -541,56 +591,43 @@ function SliderRow({t,label,value,min,max,onChange,step=1}){
 
   return(
     <div style={{marginBottom:7,userSelect:"none"}}>
-      {/* Label + value */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
         <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font,lineHeight:1}}>{label}</span>
-        <div style={{display:"flex",alignItems:"center",gap:0}}>
-          <input type="number" value={value} min={min} max={max} step={step}
-            onChange={e=>{const v=Number(e.target.value);if(!isNaN(v))onChange(Math.max(min,Math.min(max,v)));}}
-            style={{width:36,textAlign:"right",fontFamily:t.font,fontSize:t.fontSize-1,
-              background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
-              padding:"1px 3px",color:t.labelColor,cursor:t.cursors.text,
-              outline:"none",border:isWin?`1px inset #808080`:"1px solid #aaa",
-              MozAppearance:"textfield"}}/>
-        </div>
+        <input type="number" value={value} min={min} max={max} step={step}
+          onChange={e=>{const v=Number(e.target.value);if(!isNaN(v))onChange(Math.max(min,Math.min(max,v)));}}
+          style={{width:36,textAlign:"right",fontFamily:t.font,fontSize:t.fontSize-1,
+            background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
+            padding:"1px 3px",color:t.labelColor,cursor:t.cursors.text,
+            outline:"none",border:isWin?"1px inset #808080":"1px solid #aaa",
+            MozAppearance:"textfield"}}/>
       </div>
-      {/* Track */}
-      <div ref={trackRef} onClick={handleTrackClick} onMouseMove={handleDrag}
+      <div ref={trackRef} onMouseDown={handleMouseDown}
         style={{position:"relative",height:thumbSize+4,display:"flex",
           alignItems:"center",cursor:t.cursors.pointer}}>
-        {/* Track bg */}
         <div style={{
           position:"absolute",left:0,right:0,height:trackH,
           background:trackBg,
           ...(isWin
-            ?{borderTop:`1px solid #808080`,borderLeft:`1px solid #808080`,
-               borderBottom:`1px solid #fff`,borderRight:`1px solid #fff`}
+            ?{borderTop:"1px solid #808080",borderLeft:"1px solid #808080",
+               borderBottom:"1px solid #fff",borderRight:"1px solid #fff"}
             :{borderRadius:3,border:"1px solid #bbb",overflow:"hidden"}),
         }}>
-          {/* Fill */}
           <div style={{
             position:"absolute",left:0,top:0,bottom:0,
-            width:`${pct}%`,
-            background:accentFill,
+            width:`${pct}%`,background:accentFill,
             borderRadius:isWin?0:"3px 0 0 3px",
           }}/>
         </div>
-        {/* Thumb */}
         <div style={{
-          position:"absolute",
-          left:`calc(${pct}% - ${thumbSize/2}px)`,
-          width:thumbSize,height:thumbSize,
-          background:thumbBg,
-          cursor:t.cursors.grab,
-          flexShrink:0,
+          position:"absolute",left:`calc(${pct}% - ${thumbSize/2}px)`,
+          width:thumbSize,height:thumbSize,background:thumbBg,
+          cursor:t.cursors.grab,flexShrink:0,zIndex:1,
+          transition:"left 0.05s",
           ...(isWin
             ?{borderTop:"2px solid #fff",borderLeft:"2px solid #fff",
                borderRight:"2px solid #808080",borderBottom:"2px solid #808080"}
-            :{borderRadius:"50%",
-               border:"1px solid #999",
+            :{borderRadius:"50%",border:"1px solid #999",
                boxShadow:"0 1px 3px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.8)"}),
-          zIndex:1,
-          transition:"left 0.05s",
         }}/>
       </div>
     </div>
@@ -625,41 +662,43 @@ function hexToRgb(hex){
 function ColorPicker({t,rgb,onChange}){
   const isWin=t.id==="win97";
   const [hue,sat,val]=rgbToHsv(...rgb);
-  const [draggingSv,setDraggingSv]=useState(false);
-  const [draggingH, setDraggingH]=useState(false);
-  const [hexInput,setHexInput]=useState(rgbToHex(...rgb));
+  const [hexInput,setHexInput]=useState(()=>rgbToHex(...rgb));
   const svRef=useRef(null);
   const hRef=useRef(null);
+  // Use refs for drag state — avoids re-registering listeners on every pick
+  const dragging=useRef(null); // null | "sv" | "h"
+  const hsvRef=useRef({hue,sat,val});
+  hsvRef.current={hue,sat,val}; // sync during render
+  const onChangeRef=useRef(onChange);
+  onChangeRef.current=onChange;
 
   // Keep hex input in sync when rgb changes externally
   useEffect(()=>{ setHexInput(rgbToHex(...rgb)); },[rgb[0],rgb[1],rgb[2]]);
 
   const hueColor=`hsl(${hue},100%,50%)`;
 
-  const pickSv=useCallback((e)=>{
-    const rect=svRef.current.getBoundingClientRect();
-    const s=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-    const v=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
-    onChange(hsvToRgb(hue,s,v));
-  },[hue,onChange]);
-
-  const pickH=useCallback((e)=>{
-    const rect=hRef.current.getBoundingClientRect();
-    const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
-    const newH=Math.round(ratio*360);
-    onChange(hsvToRgb(newH,sat,val));
-  },[sat,val,onChange]);
-
+  // Register drag listeners once
   useEffect(()=>{
     const mv=(e)=>{
-      if(draggingSv){e.preventDefault();pickSv(e);}
-      if(draggingH){e.preventDefault();pickH(e);}
+      if(!dragging.current)return;
+      if(dragging.current==="sv"&&svRef.current){
+        const rect=svRef.current.getBoundingClientRect();
+        const s=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+        const v=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+        onChangeRef.current(hsvToRgb(hsvRef.current.hue,s,v));
+      }
+      if(dragging.current==="h"&&hRef.current){
+        const rect=hRef.current.getBoundingClientRect();
+        const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+        const newH=Math.round(ratio*360);
+        onChangeRef.current(hsvToRgb(newH,hsvRef.current.sat,hsvRef.current.val));
+      }
     };
-    const up=()=>{setDraggingSv(false);setDraggingH(false);};
+    const up=()=>{dragging.current=null;};
     window.addEventListener("mousemove",mv);
     window.addEventListener("mouseup",up);
     return()=>{window.removeEventListener("mousemove",mv);window.removeEventListener("mouseup",up);};
-  },[draggingSv,draggingH,pickSv,pickH]);
+  },[]); // ← registered once only
 
   const border=isWin
     ?{borderTop:"2px solid #808080",borderLeft:"2px solid #808080",
@@ -673,56 +712,48 @@ function ColorPicker({t,rgb,onChange}){
 
       {/* SV square */}
       <div ref={svRef}
-        onMouseDown={e=>{setDraggingSv(true);pickSv(e);}}
+        onMouseDown={e=>{
+          dragging.current="sv";
+          const rect=e.currentTarget.getBoundingClientRect();
+          const s=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+          const v=Math.max(0,Math.min(1,1-(e.clientY-rect.top)/rect.height));
+          onChange(hsvToRgb(hue,s,v));
+        }}
         style={{position:"relative",width:"100%",height:120,
           background:hueColor,cursor:"crosshair",flexShrink:0,...border}}>
-        {/* White L→R overlay */}
-        <div style={{position:"absolute",inset:0,
-          background:"linear-gradient(to right,#fff,transparent)"}}/>
-        {/* Black T→B overlay */}
-        <div style={{position:"absolute",inset:0,
-          background:"linear-gradient(to bottom,transparent,#000)"}}/>
-        {/* Crosshair */}
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(to right,#fff,transparent)"}}/>
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent,#000)"}}/>
         <div style={{
           position:"absolute",
-          left:`calc(${sat*100}% - 6px)`,
-          top:`calc(${(1-val)*100}% - 6px)`,
+          left:`calc(${sat*100}% - 6px)`,top:`calc(${(1-val)*100}% - 6px)`,
           width:12,height:12,
-          border:`2px solid ${val>0.4?"#fff":"#888"}`,
-          borderRadius:"50%",
-          boxShadow:"0 0 0 1px rgba(0,0,0,0.4)",
-          pointerEvents:"none",
+          border:`2px solid ${val>0.4?"#fff":"#888"}`,borderRadius:"50%",
+          boxShadow:"0 0 0 1px rgba(0,0,0,0.4)",pointerEvents:"none",
         }}/>
       </div>
 
       {/* Hue bar */}
       <div ref={hRef}
-        onMouseDown={e=>{setDraggingH(true);pickH(e);}}
+        onMouseDown={e=>{
+          dragging.current="h";
+          const rect=e.currentTarget.getBoundingClientRect();
+          const ratio=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+          onChange(hsvToRgb(Math.round(ratio*360),sat,val));
+        }}
         style={{position:"relative",height:14,cursor:"ew-resize",flexShrink:0,
           background:"linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)",
           ...border}}>
-        {/* Thumb */}
         <div style={{
-          position:"absolute",
-          left:`calc(${(hue/360)*100}% - 5px)`,top:-2,
-          width:10,height:18,
-          background:hueColor,
-          border:`2px solid #fff`,
-          boxShadow:"0 0 0 1px rgba(0,0,0,0.5)",
-          borderRadius:isWin?0:2,
-          pointerEvents:"none",
+          position:"absolute",left:`calc(${(hue/360)*100}% - 5px)`,top:-2,
+          width:10,height:18,background:hueColor,
+          border:"2px solid #fff",boxShadow:"0 0 0 1px rgba(0,0,0,0.5)",
+          borderRadius:isWin?0:2,pointerEvents:"none",
         }}/>
       </div>
 
-      {/* Preview + hex input row */}
+      {/* Preview + hex input */}
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
-        {/* Swatch preview */}
-        <div style={{
-          width:28,height:22,flexShrink:0,
-          background:rgbToHex(...rgb),
-          ...border,
-        }}/>
-        {/* Hex input */}
+        <div style={{width:28,height:22,flexShrink:0,background:rgbToHex(...rgb),...border}}/>
         <input value={hexInput}
           onChange={e=>{
             setHexInput(e.target.value);
@@ -735,32 +766,29 @@ function ColorPicker({t,rgb,onChange}){
             padding:"2px 4px",color:t.labelColor,outline:"none",
             border:isWin?"1px inset #808080":"1px solid #aaa",
             cursor:t.cursors.text,letterSpacing:"0.05em"}}/>
-        {/* RGB readout */}
         <span style={{fontSize:9,fontFamily:"monospace",color:"#888",
           whiteSpace:"nowrap",lineHeight:1.4,textAlign:"right"}}>
           {rgb[0]}<br/>{rgb[1]}<br/>{rgb[2]}
         </span>
       </div>
 
-      {/* Quick neon swatches */}
+      {/* Quick neon swatches — fast equality (no JSON.stringify) */}
       <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-        {Object.entries(NEON_COLORS).map(([name,[r,g,b]])=>(
-          <div key={name} title={name}
-            onClick={()=>onChange([r,g,b])}
-            style={{
-              width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
-              background:rgbToHex(r,g,b),
-              ...(JSON.stringify(rgb)===JSON.stringify([r,g,b])
-                ?sunkenBorder(t):raisedBorder(t)),
-              borderRadius:isWin?0:"50%",
-            }}/>
+        {Object.entries(NEON_COLORS).map(([name,[r,g,b]])=>{
+          const active=rgb[0]===r&&rgb[1]===g&&rgb[2]===b;
+          return(
+            <div key={name} title={name} onClick={()=>onChange([r,g,b])}
+              style={{width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
+                background:rgbToHex(r,g,b),
+                ...(active?sunkenBorder(t):raisedBorder(t)),
+                borderRadius:isWin?0:"50%"}}/>
+          );
+        })}
+        {[["White",[255,255,255]],["Black",[0,0,0]]].map(([name,[r,g,b]])=>(
+          <div key={name} title={name} onClick={()=>onChange([r,g,b])}
+            style={{width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
+              background:rgbToHex(r,g,b),...raisedBorder(t),borderRadius:isWin?0:"50%"}}/>
         ))}
-        <div title="White" onClick={()=>onChange([255,255,255])}
-          style={{width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
-            background:"#ffffff",...raisedBorder(t),borderRadius:isWin?0:"50%"}}/>
-        <div title="Black" onClick={()=>onChange([0,0,0])}
-          style={{width:18,height:18,cursor:t.cursors.pointer,flexShrink:0,
-            background:"#000000",...raisedBorder(t),borderRadius:isWin?0:"50%"}}/>
       </div>
     </div>
   );
@@ -784,7 +812,22 @@ function SectionLabel({t,children}){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TITLE BAR
+// MODULE-LEVEL CONSTANTS for components that don't change
+// ─────────────────────────────────────────────────────────────────────────────
+const MENU_ITEMS     = ["File","Edit","View","Dither","Palette","Help"];
+const MAC_MENU_ITEMS = ["🍎","File","Edit","View","Dither","Special","Help"];
+const DESKTOP_ICONS_WIN = [
+  {id:"dither",label:"DitherBoy",   emoji:"🎨"},
+  {id:"mypc",  label:"My Computer", emoji:"💻"},
+  {id:"trash", label:"Recycle Bin", emoji:"🗑"},
+  {id:"docs",  label:"Documents",   emoji:"📁"},
+];
+const DESKTOP_ICONS_MAC = [
+  {id:"dither",label:"DitherBoy",    emoji:"🎨"},
+  {id:"mypc",  label:"Macintosh HD", emoji:"🖥"},
+  {id:"trash", label:"Trash",        emoji:"🗑"},
+  {id:"docs",  label:"Documents",    emoji:"📁"},
+];
 // ─────────────────────────────────────────────────────────────────────────────
 function TitleBar({t,title,onMouseDown,onMinimize,onMaximize,onClose}){
   const isWin=t.id==="win97";
@@ -833,11 +876,10 @@ function TitleBar({t,title,onMouseDown,onMinimize,onMaximize,onClose}){
 // ─────────────────────────────────────────────────────────────────────────────
 function MenuBar({t}){
   const [hov,setHov]=useState(null);
-  const items=["File","Edit","View","Dither","Palette","Help"];
   return(
     <div style={{background:t.menuBg,padding:"2px 4px",display:"flex",
       borderBottom:`1px solid ${t.bDark}`,fontFamily:t.font,fontSize:t.fontSize,flexShrink:0}}>
-      {items.map(item=>(
+      {MENU_ITEMS.map(item=>(
         <div key={item} onMouseEnter={()=>setHov(item)} onMouseLeave={()=>setHov(null)}
           style={{padding:"2px 8px",cursor:t.cursors.pointer,
             background:hov===item?t.menuHoverBg:"transparent",
@@ -889,13 +931,12 @@ function Win97Taskbar({t,windowTitle,minimized,onClickTask,time}){
 // ─────────────────────────────────────────────────────────────────────────────
 function MacMenuBar({t,time}){
   const [hov,setHov]=useState(null);
-  const items=["🍎","File","Edit","View","Dither","Special","Help"];
   return(
     <div style={{position:"fixed",top:0,left:0,right:0,height:20,
       background:"white",borderBottom:"1px solid #ccc",
       display:"flex",alignItems:"center",
       fontFamily:t.titleFont,fontSize:12,zIndex:9999,userSelect:"none"}}>
-      {items.map((item,i)=>(
+      {MAC_MENU_ITEMS.map((item,i)=>(
         <div key={item} onMouseEnter={()=>setHov(item)} onMouseLeave={()=>setHov(null)}
           style={{padding:"0 10px",height:"100%",display:"flex",alignItems:"center",
             background:hov===item?"#000080":"transparent",
@@ -910,17 +951,9 @@ function MacMenuBar({t,time}){
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DESKTOP ICONS
-// ─────────────────────────────────────────────────────────────────────────────
 function DesktopIcons({t,onOpenApp}){
   const isWin=t.id==="win97";
-  const icons=[
-    {id:"dither",label:"DitherBoy",emoji:"🎨"},
-    {id:"mypc",  label:isWin?"My Computer":"Macintosh HD",emoji:isWin?"💻":"🖥"},
-    {id:"trash", label:isWin?"Recycle Bin":"Trash",emoji:"🗑"},
-    {id:"docs",  label:"Documents",emoji:"📁"},
-  ];
+  const icons=isWin?DESKTOP_ICONS_WIN:DESKTOP_ICONS_MAC;
   const [selected,setSelected]=useState(null);
   return(
     <div style={{position:"absolute",top:isWin?8:28,right:8,display:"flex",
@@ -932,15 +965,11 @@ function DesktopIcons({t,onOpenApp}){
           style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,
             padding:"4px 6px",borderRadius:isWin?0:4,userSelect:"none",
             cursor:t.cursors.pointer,
-            background:selected===ic.id
-              ?(isWin?"#000080":"rgba(0,0,128,0.4)")
-              :"transparent"}}>
+            background:selected===ic.id?(isWin?"#000080":"rgba(0,0,128,0.4)"):"transparent"}}>
           <span style={{fontSize:isWin?24:28,lineHeight:1}}>{ic.emoji}</span>
-          <span style={{fontSize:isWin?11:11,fontFamily:t.font,
-            color:selected===ic.id?"#fff":"#fff",
+          <span style={{fontSize:11,fontFamily:t.font,color:"#fff",
             textShadow:"0 1px 3px rgba(0,0,0,0.8)",
-            textAlign:"center",maxWidth:64,wordBreak:"break-word",
-            lineHeight:1.2}}>
+            textAlign:"center",maxWidth:64,wordBreak:"break-word",lineHeight:1.2}}>
             {ic.label}
           </span>
         </div>
@@ -972,7 +1001,7 @@ export default function DitherBoy(){
   const [time,setTime] = useState("");
   useEffect(()=>{
     const tick=()=>setTime(new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
-    tick();const id=setInterval(tick,10000);return()=>clearInterval(id);
+    tick();const id=setInterval(tick,60000);return()=>clearInterval(id);
   },[]);
 
   // Image state
@@ -986,40 +1015,47 @@ export default function DitherBoy(){
   const [showOriginal, setShowOriginal] = useState(false);
   const origDataRef = useRef(null);
 
-  // Dither settings
-  const [category,     setCategory]     = useState("Halftone");
-  const [mode,         setMode]         = useState("CMYK");
-  const [cellSize,     setCellSize]     = useState(10);
-  const [dotGain,      setDotGain]      = useState(20);
-  const [blackMix,     setBlackMix]     = useState(61);
-  const [cyanAngle,    setCyanAngle]    = useState(333);
-  const [magentaAngle, setMagentaAngle] = useState(19);
-  const [yellowAngle,  setYellowAngle]  = useState(317);
-  const [blackAngle,   setBlackAngle]   = useState(45);
-  const [brightness,   setBrightness]   = useState(0);
-  const [contrast,     setContrast]     = useState(0);
-  const [saturation,   setSaturation]   = useState(0);
-  const [scale,        setScale]        = useState(1);
-  const [neonColor,    setNeonColor]    = useState([0,220,240]); // custom neon RGB
+  // ── Dither settings — single useReducer ─────────────────────────────────────
+  const [ds, dispatchDs] = useReducer(
+    (state, patch) => ({...state, ...patch}),
+    DITHER_DEFAULTS
+  );
+  const { category,mode,cellSize,dotGain,blackMix,
+          cyanAngle,magentaAngle,yellowAngle,blackAngle,
+          brightness,contrast,saturation,scale,neonColor } = ds;
 
   // Background removal state
   const [bgRemoved,      setBgRemoved]      = useState(false);
   const [bgRemoving,     setBgRemoving]     = useState(false);
-  const [bgProgress,     setBgProgress]     = useState(0);   // 0-100
-  const [bgProgressLabel,setBgProgressLabel]= useState("");  // e.g. "Downloading model…"
+  const [bgProgress,     setBgProgress]     = useState(0);
+  const [bgProgressLabel,setBgProgressLabel]= useState("");
   const [bgReplaceFill,  setBgReplaceFill]  = useState("transparent");
   const [bgCustomColor,  setBgCustomColor]  = useState("#ffffff");
   const [bgRemovedData,  setBgRemovedData]  = useState(null);
   const [showBgPanel,    setShowBgPanel]    = useState(false);
-  const [lastPreset,     setLastPreset]     = useState(null); // name of last applied preset
+  const [lastPreset,     setLastPreset]     = useState(null);
 
-  // Inject global cursor style
+  // Undo/Redo — declared before the render useEffect that writes to them
+  const [history,    setHistory]    = useState([]);
+  const [historyIdx, setHistoryIdx] = useState(-1);
+
+  // Inject global cursor style — proper cleanup on unmount
   useEffect(()=>{
     let style=document.getElementById("dither-cursor-style");
-    if(!style){style=document.createElement("style");style.id="dither-cursor-style";document.head.appendChild(style);}
+    const created=!style;
+    if(created){style=document.createElement("style");style.id="dither-cursor-style";document.head.appendChild(style);}
     style.textContent=`body{cursor:${t.cursors.default}!important;}input[type=range]{cursor:${t.cursors.pointer}!important;}`;
-    return()=>{};
+    return()=>{if(created&&style.parentNode)style.parentNode.removeChild(style);};
   },[t.cursors.default, t.cursors.pointer]);
+
+  // mkSet — memoized per key via a stable cache ref so onChange props are stable
+  const mkSetCache=useRef({});
+  const mkSet=useCallback((key)=>{
+    if(!mkSetCache.current[key]){
+      mkSetCache.current[key]=(v)=>{dispatchDs({[key]:v});setLastPreset(null);};
+    }
+    return mkSetCache.current[key];
+  },[]);
 
   // Load file
   const loadFile=useCallback((file)=>{
@@ -1036,6 +1072,7 @@ export default function DitherBoy(){
         setImgDims({w,h});setShowOriginal(false);
         setBgRemoved(false);setBgRemovedData(null);setBgRemoving(false);
         setBgProgress(0);setBgProgressLabel("");
+        setHistory([]);setHistoryIdx(-1);
         setStatus(`Loaded: ${file.name} (${w}×${h})`);
         if(thumbRef.current){const tc=thumbRef.current;tc.width=90;tc.height=68;tc.getContext("2d").drawImage(img,0,0,90,68);}
       };
@@ -1044,41 +1081,48 @@ export default function DitherBoy(){
     reader.readAsDataURL(file);
   },[]);
 
-  // Live render
-  const settings=useMemo(()=>({category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale,neonColor}),[category,mode,cellSize,dotGain,blackMix,cyanAngle,magentaAngle,yellowAngle,blackAngle,brightness,contrast,saturation,scale,neonColor]);
+  // Pass ds directly — no need to spread, it's already a plain object
+  const settings = ds;
 
-  const handleCat=(cat)=>{setCategory(cat);setMode(MODES[cat][0]);setLastPreset(null);};
-  // Wrap setters so any manual tweak clears the active preset highlight
-  const mkSet=(setter)=>(v)=>{setter(v);setLastPreset(null);};
+  const handleCat=useCallback((cat)=>{
+    dispatchDs({category:cat,mode:MODES[cat][0]});
+    setLastPreset(null);
+  },[]);
+  // mkSet: stable — takes a key string, returns a setter function
+  const mkSet=useCallback((key)=>(v)=>{dispatchDs({[key]:v});setLastPreset(null);},[]);
 
-  const applyPreset=(p)=>{
-    setCategory(p.category);
-    setMode(p.mode);
-    setCellSize(p.cellSize);
-    setDotGain(p.dotGain);
-    setBlackMix(p.blackMix);
-    setBrightness(p.brightness);
-    setContrast(p.contrast);
-    setSaturation(p.saturation);
-    setScale(p.scale);
-    setCyanAngle(p.cyanAngle);
-    setMagentaAngle(p.magentaAngle);
-    setYellowAngle(p.yellowAngle);
-    setBlackAngle(p.blackAngle);
+  const applyPreset=useCallback((p)=>{
+    dispatchDs({
+      category:p.category, mode:p.mode,
+      cellSize:p.cellSize, dotGain:p.dotGain, blackMix:p.blackMix,
+      brightness:p.brightness, contrast:p.contrast, saturation:p.saturation,
+      scale:p.scale,
+      cyanAngle:p.cyanAngle, magentaAngle:p.magentaAngle,
+      yellowAngle:p.yellowAngle, blackAngle:p.blackAngle,
+    });
     setLastPreset(p.name);
-  };
+  },[]);
 
   // ── Background Removal ────────────────────────────────────────────────────
   const handleRemoveBg=useCallback(async()=>{
     if(!srcImageData||bgRemoving)return;
+
+    // ── Cache hit: result already exists for this image — just re-enable it ──
+    if(bgRemovedData){
+      setBgRemoved(true);
+      setStatus("Background removed ✓ (cached)");
+      return;
+    }
+
+    // ── Cache miss: run the ML model ─────────────────────────────────────────
     setBgRemoving(true);
     setBgProgress(0);
     setBgProgressLabel("Initialising…");
     setStatus("Removing background with ML…");
     try{
       const STAGE_LABELS={
-        "fetch:model":   "Downloading model…",
-        "fetch:chunk":   "Downloading model…",
+        "fetch:model":       "Downloading model…",
+        "fetch:chunk":       "Downloading model…",
         "compute:inference": "Running AI segmentation…",
       };
       const result=await removeBackgroundML(srcImageData,(pct,key)=>{
@@ -1087,6 +1131,7 @@ export default function DitherBoy(){
         setBgProgressLabel(label);
         setStatus(`${label} ${pct}%`);
       });
+      // Store in state — stays alive until a new image is loaded
       setBgRemovedData(result);
       setBgRemoved(true);
       setBgProgress(100);
@@ -1098,31 +1143,35 @@ export default function DitherBoy(){
     }finally{
       setBgRemoving(false);
     }
-  },[srcImageData,bgRemoving]);
+  },[srcImageData,bgRemoving,bgRemovedData]);  // bgRemovedData in deps for cache check
 
   const handleResetBg=useCallback(()=>{
+    // Only toggle the active flag — keep bgRemovedData so re-enabling is instant
     setBgRemoved(false);
-    setBgRemovedData(null);
-    setStatus("Background restored");
+    setStatus("Background restored — cached result preserved, click Remove to re-apply instantly");
   },[]);
 
-  // Composite bg-removed image with fill colour before dithering
-  // MUST be declared before the render useEffect that consumes it
+  // Composite bg-removed image with fill colour before dithering.
+  // MUST be before the render useEffect.
   const activeImageData=useMemo(()=>{
     if(!bgRemoved||!bgRemovedData)return srcImageData;
     const{width:w,height:h}=bgRemovedData;
-    const tmp=document.createElement("canvas");tmp.width=w;tmp.height=h;
-    const ctx=tmp.getContext("2d");
-    if(bgReplaceFill==="black"){ctx.fillStyle="#000000";ctx.fillRect(0,0,w,h);}
-    else if(bgReplaceFill==="white"){ctx.fillStyle="#ffffff";ctx.fillRect(0,0,w,h);}
+    const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+    const ctx=cv.getContext("2d");
+    // 1. Paint fill
+    if(bgReplaceFill==="black")      {ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);}
+    else if(bgReplaceFill==="white") {ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);}
     else if(bgReplaceFill==="custom"){ctx.fillStyle=bgCustomColor;ctx.fillRect(0,0,w,h);}
-    const src2=document.createElement("canvas");src2.width=w;src2.height=h;
-    src2.getContext("2d").putImageData(bgRemovedData,0,0);
-    ctx.drawImage(src2,0,0);
+    // 2. Composite the masked subject on top via a temp canvas
+    //    (putImageData ignores globalCompositeOperation; drawImage respects it)
+    const tmp=document.createElement("canvas");tmp.width=w;tmp.height=h;
+    tmp.getContext("2d").putImageData(bgRemovedData,0,0);
+    ctx.drawImage(tmp,0,0);
     return ctx.getImageData(0,0,w,h);
   },[bgRemoved,bgRemovedData,bgReplaceFill,bgCustomColor,srcImageData]);
 
   // Render — depends on activeImageData, must come after it
+  // Also updates the dithered thumbnail ref after render
   useEffect(()=>{
     if(!activeImageData||showOriginal)return;
     if(pendingTimer.current)clearTimeout(pendingTimer.current);
@@ -1133,21 +1182,65 @@ export default function DitherBoy(){
         const cv=canvasRef.current;if(!cv)return;
         cv.width=result.width;cv.height=result.height;
         cv.getContext("2d").putImageData(result,0,0);
+        // Update thumbnail to show dithered result
+        if(thumbRef.current){
+          const tc=thumbRef.current;tc.width=90;tc.height=68;
+          tc.getContext("2d").drawImage(cv,0,0,90,68);
+        }
         setStatus(`${result.width}×${result.height} · ${category} · ${mode}${bgRemoved?" · BG removed":""}`);
+        // Push to undo history (cap at 20 steps, truncate forward branch on new action)
+        setHistory(h=>{
+          const branch=h.slice(0,historyIdx+1);
+          const next=[...branch,{ds:{...ds},bgRemoved,bgReplaceFill,bgCustomColor}];
+          return next.length>20?next.slice(next.length-20):next;
+        });
+        setHistoryIdx(i=>{
+          const newLen=Math.min(i+2,20); // i+1 entries after push, capped at 20
+          return newLen-1;
+        });
       }catch(e){setStatus("Error: "+e.message);}
       finally{setIsProcessing(false);}
     },80);
   },[activeImageData,settings,showOriginal,category,mode,bgRemoved]);
 
-  const handleExport=()=>{
-    const cv=canvasRef.current;if(!cv||!srcImageData)return;
-    const link=document.createElement("a");
-    link.download=`dithered.${exportFmt.toLowerCase()}`;
-    link.href=cv.toDataURL(exportFmt==="PNG"?"image/png":"image/jpeg");
-    link.click();
-  };
+  // ── Undo / Redo ────────────────────────────────────────────────────────────
+  const handleUndo=useCallback(()=>{
+    if(historyIdx<=0)return;
+    const prev=history[historyIdx-1];
+    dispatchDs(prev.ds);
+    setBgRemoved(prev.bgRemoved);
+    setBgReplaceFill(prev.bgReplaceFill);
+    setBgCustomColor(prev.bgCustomColor);
+    setHistoryIdx(i=>i-1);
+    setStatus("Undo");
+  },[history,historyIdx]);
 
-  const handleToggleOriginal=()=>{
+  const handleRedo=useCallback(()=>{
+    if(historyIdx>=history.length-1)return;
+    const next=history[historyIdx+1];
+    dispatchDs(next.ds);
+    setBgRemoved(next.bgRemoved);
+    setBgReplaceFill(next.bgReplaceFill);
+    setBgCustomColor(next.bgCustomColor);
+    setHistoryIdx(i=>i+1);
+    setStatus("Redo");
+  },[history,historyIdx]);
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+  const handleExport=useCallback(()=>{
+    const cv=canvasRef.current;if(!cv||!srcImageData)return;
+    if(exportFmt==="JPEG"&&bgRemoved){
+      setStatus("⚠ JPEG doesn't support transparency — switch to PNG to keep removed background");
+    }
+    const link=document.createElement("a");
+    const ext=exportFmt==="PNG"?"png":"jpg";
+    link.download=`dithered-${Date.now()}.${ext}`;
+    link.href=cv.toDataURL(exportFmt==="PNG"?"image/png":"image/jpeg",0.92);
+    link.click();
+  },[srcImageData,exportFmt,bgRemoved]);
+
+  // ── Toggle original ────────────────────────────────────────────────────────
+  const handleToggleOriginal=useCallback(()=>{
     if(!origDataRef.current)return;
     const next=!showOriginal;
     setShowOriginal(next);
@@ -1155,9 +1248,29 @@ export default function DitherBoy(){
     if(next){
       cv.width=origDataRef.current.width;cv.height=origDataRef.current.height;
       cv.getContext("2d").putImageData(origDataRef.current,0,0);
-      setStatus("Viewing original");
+      setStatus("Viewing original — toggle again to return to dithered view");
+    } else {
+      setStatus("Returning to dithered view…");
+      cv.width=1;cv.height=1;
     }
-  };
+  },[showOriginal]);
+
+  // ── Keyboard shortcuts — use refs so listener is registered once, never stale ──
+  const handlerRefs=useRef({});
+  handlerRefs.current={handleUndo,handleRedo,handleExport,handleToggleOriginal,fileInputRef};
+  useEffect(()=>{
+    const onKey=(e)=>{
+      const ctrl=e.ctrlKey||e.metaKey;
+      const{handleUndo,handleRedo,handleExport,handleToggleOriginal,fileInputRef}=handlerRefs.current;
+      if(ctrl&&e.key==="z"&&!e.shiftKey){e.preventDefault();handleUndo();}
+      if(ctrl&&(e.key==="y"||(e.key==="z"&&e.shiftKey))){e.preventDefault();handleRedo();}
+      if(ctrl&&e.key==="o"){e.preventDefault();fileInputRef.current?.click();}
+      if(ctrl&&e.key==="s"){e.preventDefault();handleExport();}
+      if(ctrl&&e.key==="d"){e.preventDefault();handleToggleOriginal();}
+    };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[]); // ← registered once, never torn down/re-added
 
   const toggleTheme=()=>{
     const next=themeId==="win97"?"macos":"win97";
@@ -1176,25 +1289,29 @@ export default function DitherBoy(){
     :{position:"absolute",left:winPos.x,top:winPos.y,width:winSize.w,height:winSize.h,
       maxWidth:"calc(100vw - 8px)",maxHeight:`calc(100vh - ${isWin?38:28}px)`};
 
-  // ── Toolbar ──────────────────────────────────────────────────────────────────
-  const Toolbar=()=>(
+  // ── Toolbar (inlined JSX — not a component fn, avoids remount on every render) ──
+  const toolbarContent=(
     <div style={{background:t.windowBg,padding:"4px 6px",display:"flex",
       alignItems:"center",gap:5,borderBottom:`1px solid ${t.bDark}`,
       flexWrap:"nowrap",flexShrink:0,overflowX:"auto"}}>
-      <WinBtn t={t} onClick={()=>fileInputRef.current?.click()}>
+      <WinBtn t={t} onClick={()=>fileInputRef.current?.click()} title="Ctrl+O">
         {isWin?"📂 Open…":"⌘ Import…"}
       </WinBtn>
-      <WinBtn t={t} disabled={!srcImageData} onClick={handleExport}>
+      <WinBtn t={t} disabled={!srcImageData} onClick={handleExport} title="Ctrl+S">
         {isWin?"💾 Save As…":"⌘ Export…"}
       </WinBtn>
-      <WinBtn t={t} disabled={!srcImageData} onClick={handleToggleOriginal}>
+      <WinBtn t={t} disabled={!srcImageData} onClick={handleToggleOriginal} title="Ctrl+D">
         {showOriginal?"◑ Dithered":"◑ Original"}
       </WinBtn>
-      {/* BG Remove toolbar button */}
       <WinBtn t={t} disabled={!srcImageData||bgRemoving}
         onClick={bgRemoved?handleResetBg:handleRemoveBg}
         style={bgRemoved?{...sunkenBorder(t),background:isWin?"#000080":"#333",color:"#fff"}:{}}>
-        {bgRemoving?"⏳ Removing…":bgRemoved?"✕ Restore BG":"✂ Remove BG"}      </WinBtn>
+        {bgRemoving?"⏳ Removing…":bgRemoved?"✕ Restore BG":bgRemovedData?"⚡ Re-apply BG":"✂ Remove BG"}
+      </WinBtn>
+      {isWin?<div style={{width:2,height:22,borderLeft:`1px solid ${t.bDark}`,borderRight:`1px solid ${t.bLight}`,margin:"0 2px"}}/>
+            :<div style={{width:1,height:20,background:"#bbb",margin:"0 2px"}}/>}
+      <WinBtn t={t} disabled={historyIdx<=0} onClick={handleUndo} title="Ctrl+Z">↩</WinBtn>
+      <WinBtn t={t} disabled={historyIdx>=history.length-1} onClick={handleRedo} title="Ctrl+Y">↪</WinBtn>
       <select value={exportFmt} onChange={e=>setExportFmt(e.target.value)}
         style={{background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
           padding:"2px 4px",fontSize:t.fontSize,fontFamily:t.font,
@@ -1210,13 +1327,6 @@ export default function DitherBoy(){
   // ── Sidebar ───────────────────────────────────────────────────────────────────
   // Defined as JSX, NOT as a component function — avoids remount (scroll reset) on every render
   const sidebarRef = useRef(null);
-  const PRESET_GROUPS=[
-    {label:"Neon Glow", items:PRESETS.filter(p=>p.category==="Neon Glow")},
-    {label:"Halftone",  items:PRESETS.filter(p=>p.category==="Halftone")},
-    {label:"Error Diffusion", items:PRESETS.filter(p=>p.category==="Error Diffusion")},
-    {label:"Ordered",   items:PRESETS.filter(p=>p.category==="Ordered")},
-    {label:"Pixel Art", items:PRESETS.filter(p=>p.category==="Pixel Art")},
-  ];
 
   const sidebarContent = (
     <div style={{padding:"10px",display:"flex",flexDirection:"column",gap:7}}>
@@ -1260,16 +1370,37 @@ export default function DitherBoy(){
         </div>
 
         {showBgPanel&&<>
-          {/* Remove / Restore button */}
+          {/* Remove / Restore / Re-apply button */}
           <WinBtn t={t} disabled={!srcImageData||bgRemoving}
             onClick={bgRemoved?handleResetBg:handleRemoveBg}
             style={{width:"100%",justifyContent:"center",
               ...(bgRemoved?{...sunkenBorder(t),background:isWin?"#000080":"#333",color:"#fff"}:{})}}>
-            {bgRemoving?"⏳ Processing…":bgRemoved?"✕ Restore Original":"✂ Remove Background"}
+            {bgRemoving
+              ? "⏳ Processing…"
+              : bgRemoved
+                ? "✕ Restore Original"
+                : bgRemovedData
+                  ? "⚡ Re-apply (cached)"
+                  : "✂ Remove Background"}
           </WinBtn>
 
-          {/* ML info note */}
-          {!bgRemoving&&!bgRemoved&&(
+          {/* Cache status badge */}
+          {!bgRemoving&&bgRemovedData&&!bgRemoved&&(
+            <div style={{display:"flex",alignItems:"center",gap:5,
+              padding:"3px 6px",
+              background:isWin?"#c0ffc0":"#e8f8e8",
+              ...(isWin
+                ?{borderTop:"1px solid #008000",borderLeft:"1px solid #008000",
+                   borderRight:"1px solid #80ff80",borderBottom:"1px solid #80ff80"}
+                :{border:"1px solid #88cc88",borderRadius:3}),
+              fontSize:9,fontFamily:t.font,color:isWin?"#004400":"#336633"}}>
+              <span>⚡</span>
+              <span>Result cached — re-apply is instant, no model re-run</span>
+            </div>
+          )}
+
+          {/* First-run info — only when no cache exists yet */}
+          {!bgRemoving&&!bgRemoved&&!bgRemovedData&&(
             <div style={{fontSize:9,color:"#888",fontFamily:t.font,lineHeight:1.5}}>
               Uses an AI model running locally in your browser. First run downloads ~5 MB model (cached after).
             </div>
@@ -1387,9 +1518,9 @@ export default function DitherBoy(){
         <div>
           <span style={{fontSize:t.fontSize-1,color:t.labelColor,fontFamily:t.font,display:"block",marginBottom:2}}>Mode</span>
           <div style={{display:"flex",gap:4}}>
-            <WinSelect t={t} value={mode} onChange={v=>{setMode(v);setLastPreset(null);}} options={MODES[category]}/>
-            <WinBtn t={t} onClick={()=>{const ms=MODES[category],i=ms.indexOf(mode);setMode(ms[(i-1+ms.length)%ms.length]);}}>‹</WinBtn>
-            <WinBtn t={t} onClick={()=>{const ms=MODES[category],i=ms.indexOf(mode);setMode(ms[(i+1)%ms.length]);}}>›</WinBtn>
+            <WinSelect t={t} value={mode} onChange={v=>{dispatchDs({mode:v});setLastPreset(null);}} options={MODES[category]}/>
+            <WinBtn t={t} onClick={()=>{const ms=MODES[category],i=ms.indexOf(mode);dispatchDs({mode:ms[(i-1+ms.length)%ms.length]});setLastPreset(null);}}>‹</WinBtn>
+            <WinBtn t={t} onClick={()=>{const ms=MODES[category],i=ms.indexOf(mode);dispatchDs({mode:ms[(i+1)%ms.length]});setLastPreset(null);}}>›</WinBtn>
           </div>
         </div>
 
@@ -1399,9 +1530,9 @@ export default function DitherBoy(){
         <SectionLabel t={t}>{isWin?`▼ ${category} Settings`:`▾ ${category.toUpperCase()} SETTINGS`}</SectionLabel>
 
         {category==="Halftone"&&<>
-          <SliderRow t={t} label="Cell Size"  value={cellSize}  min={2}  max={40} onChange={mkSet(setCellSize)}/>
-          <SliderRow t={t} label="Dot Gain"   value={dotGain}   min={0}  max={100} onChange={mkSet(setDotGain)}/>
-          {mode==="CMYK"&&<SliderRow t={t} label="Black Mix" value={blackMix} min={0} max={100} onChange={mkSet(setBlackMix)}/>}
+          <SliderRow t={t} label="Cell Size"  value={cellSize}  min={2}  max={40} onChange={mkSet("cellSize")}/>
+          <SliderRow t={t} label="Dot Gain"   value={dotGain}   min={0}  max={100} onChange={mkSet("dotGain")}/>
+          {mode==="CMYK"&&<SliderRow t={t} label="Black Mix" value={blackMix} min={0} max={100} onChange={mkSet("blackMix")}/>}
           <div style={{display:"flex",alignItems:"center",gap:6,fontSize:t.fontSize-1,
             color:t.labelColor,fontFamily:t.font,marginBottom:4}}>
             <input type="checkbox" id="phaseOff" style={{accentColor:t.sliderAccent,cursor:t.cursors.pointer}}/>
@@ -1409,23 +1540,23 @@ export default function DitherBoy(){
           </div>
           {mode==="CMYK"?(
             <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"center",marginTop:4}}>
-              <Knob t={t} label="Cyan"    value={cyanAngle}    onChange={mkSet(setCyanAngle)}/>
-              <Knob t={t} label="Magenta" value={magentaAngle} onChange={mkSet(setMagentaAngle)}/>
-              <Knob t={t} label="Yellow"  value={yellowAngle}  onChange={mkSet(setYellowAngle)}/>
-              <Knob t={t} label="Black"   value={blackAngle}   onChange={mkSet(setBlackAngle)}/>
+              <Knob t={t} label="Cyan"    value={cyanAngle}    onChange={mkSet("cyanAngle")}/>
+              <Knob t={t} label="Magenta" value={magentaAngle} onChange={mkSet("magentaAngle")}/>
+              <Knob t={t} label="Yellow"  value={yellowAngle}  onChange={mkSet("yellowAngle")}/>
+              <Knob t={t} label="Black"   value={blackAngle}   onChange={mkSet("blackAngle")}/>
             </div>
           ):(
             <div style={{display:"flex",justifyContent:"center"}}>
-              <Knob t={t} label="Angle" value={blackAngle} onChange={mkSet(setBlackAngle)}/>
+              <Knob t={t} label="Angle" value={blackAngle} onChange={mkSet("blackAngle")}/>
             </div>
           )}
         </>}
 
         {category==="Neon Glow"&&<>
-          <SliderRow t={t} label="Cell Size" value={cellSize} min={2} max={40} onChange={mkSet(setCellSize)}/>
-          <SliderRow t={t} label="Dot Gain"  value={dotGain}  min={0} max={100} onChange={mkSet(setDotGain)}/>
+          <SliderRow t={t} label="Cell Size" value={cellSize} min={2} max={40} onChange={mkSet("cellSize")}/>
+          <SliderRow t={t} label="Dot Gain"  value={dotGain}  min={0} max={100} onChange={mkSet("dotGain")}/>
           <div style={{display:"flex",justifyContent:"center",marginTop:4}}>
-            <Knob t={t} label="Angle" value={blackAngle} onChange={mkSet(setBlackAngle)}/>
+            <Knob t={t} label="Angle" value={blackAngle} onChange={mkSet("blackAngle")}/>
           </div>
           {/* Neon colour picker */}
           <div style={{marginTop:4}}>
@@ -1433,7 +1564,7 @@ export default function DitherBoy(){
               display:"block",marginBottom:6}}>Glow Color</span>
             <ColorPicker t={t} rgb={
               mode==="Custom"?neonColor:(NEON_COLORS[mode]||NEON_COLORS.Cyan)
-            } onChange={(rgb)=>{setNeonColor(rgb);setMode("Custom");}}/>
+            } onChange={(rgb)=>{dispatchDs({neonColor:rgb,mode:"Custom"});setLastPreset(null);}}/>
           </div>
         </>}
 
@@ -1447,10 +1578,10 @@ export default function DitherBoy(){
 
         {/* Adjustments */}
         <SectionLabel t={t}>{isWin?"▼ Adjustments":"▾ ADJUSTMENTS"}</SectionLabel>
-        <SliderRow t={t} label="Brightness" value={brightness} min={-100} max={100} onChange={mkSet(setBrightness)}/>
-        <SliderRow t={t} label="Contrast"   value={contrast}   min={-100} max={100} onChange={mkSet(setContrast)}/>
-        <SliderRow t={t} label="Saturation" value={saturation} min={-100} max={100} onChange={mkSet(setSaturation)}/>
-        <SliderRow t={t} label="Downscale"  value={scale}      min={1}    max={8}   onChange={mkSet(setScale)}/>
+        <SliderRow t={t} label="Brightness" value={brightness} min={-100} max={100} onChange={mkSet("brightness")}/>
+        <SliderRow t={t} label="Contrast"   value={contrast}   min={-100} max={100} onChange={mkSet("contrast")}/>
+        <SliderRow t={t} label="Saturation" value={saturation} min={-100} max={100} onChange={mkSet("saturation")}/>
+        <SliderRow t={t} label="Downscale"  value={scale}      min={1}    max={8}   onChange={mkSet("scale")}/>
 
         <Divider t={t}/>
 
@@ -1465,26 +1596,32 @@ export default function DitherBoy(){
       </div>
   ); // end sidebarContent
 
-  // ── Status Bar ────────────────────────────────────────────────────────────────
-  const StatusBar=()=>(
+  // ── Status Bar (inlined JSX — not a component fn) ────────────────────────────
+  const statusBarContent=(
     <div style={{background:t.statusBg,borderTop:`1px solid ${t.bDark}`,
       padding:"2px 0",display:"flex",flexShrink:0,alignItems:"center"}}>
-      {[status,"DitherBoy v3.0"].map((txt,i)=>(
-        <div key={i} style={{
-          flex:i===0?1:"0 0 auto",minWidth:i===1?100:undefined,
-          fontSize:t.fontSize,fontFamily:t.font,color:t.labelColor,
-          ...(isWin?{...sunkenBorder(t),padding:"1px 8px",margin:"2px 3px"}
-                  :{padding:"2px 10px",borderLeft:i===1?"1px solid #bbb":"none"}),
-        }}>{txt}</div>
-      ))}
-      {/* Win: resize grip */}
+      <div style={{flex:1,fontSize:t.fontSize,fontFamily:t.font,color:t.labelColor,
+        ...(isWin?{...sunkenBorder(t),padding:"1px 8px",margin:"2px 3px"}:{padding:"2px 10px"}),
+      }}>{status}</div>
+      {history.length>0&&(
+        <div style={{fontSize:t.fontSize-1,fontFamily:t.font,color:t.bDark,
+          ...(isWin?{...sunkenBorder(t),padding:"1px 6px",margin:"2px 2px"}:{padding:"2px 8px",borderLeft:"1px solid #bbb"}),
+          whiteSpace:"nowrap",
+        }}>{historyIdx+1}/{history.length}</div>
+      )}
+      <div style={{fontSize:t.fontSize-1,fontFamily:t.font,color:t.bDark,
+        ...(isWin?{...sunkenBorder(t),padding:"1px 6px",margin:"2px 2px"}:{padding:"2px 8px",borderLeft:"1px solid #bbb"}),
+        whiteSpace:"nowrap",letterSpacing:"0.02em",
+      }}>{isWin?"Ctrl+Z · Ctrl+S · Ctrl+O":"⌘Z · ⌘S · ⌘O"}</div>
+      <div style={{fontSize:t.fontSize,fontFamily:t.font,color:t.labelColor,
+        ...(isWin?{...sunkenBorder(t),padding:"1px 8px",margin:"2px 3px"}:{padding:"2px 10px",borderLeft:"1px solid #bbb"}),
+        minWidth:90,
+      }}>DitherBoy v3.1</div>
       {isWin&&!maximized&&(
         <div onMouseDown={onResizeDown}
           style={{width:14,height:14,flexShrink:0,marginRight:2,cursor:"se-resize",
             display:"flex",alignItems:"flex-end",justifyContent:"flex-end",
-            opacity:0.5,userSelect:"none",fontSize:12,lineHeight:1}}>
-          ◢
-        </div>
+            opacity:0.5,userSelect:"none",fontSize:12,lineHeight:1}}>◢</div>
       )}
     </div>
   );
@@ -1526,7 +1663,7 @@ export default function DitherBoy(){
             onMouseDown={maximized?undefined:onTitleMouseDown}
             onMinimize={handleMinimize} onMaximize={handleMaximize} onClose={handleClose}/>
           <MenuBar t={t}/>
-          <Toolbar/>
+          {toolbarContent}
 
           {/* Body */}
           <div style={{display:"flex",flex:1,overflow:"hidden",minHeight:0}}>
@@ -1603,7 +1740,7 @@ export default function DitherBoy(){
             </div>
           </div>
 
-          <StatusBar/>
+          {statusBarContent}
 
           {/* Mac resize handle (bottom-right corner) */}
           {!isWin&&!maximized&&(
