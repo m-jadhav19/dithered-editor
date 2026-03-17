@@ -253,118 +253,46 @@ async function renderDither(srcID,settings){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BACKGROUND REMOVAL ENGINE  (pure canvas — no external API needed)
+// BACKGROUND REMOVAL ENGINE  — @imgly/background-removal (ML / ONNX, in-browser)
 //
-// Algorithm:
-//  1. Sample the 4 corners + edge midpoints to guess the dominant bg colour
-//  2. Flood-fill from every edge pixel that is close to the bg colour
-//  3. Grow the mask by a few pixels (morphological dilation) to catch fringing
-//  4. Apply a soft feathered alpha channel at mask boundaries
-//  5. Return a new ImageData with bg pixels set to fully transparent
+// Dynamically imported so it never runs on the server (Next.js safe).
+// The library downloads a ~5 MB ONNX model on first use (cached by the browser).
+// It returns a Blob (PNG with alpha), which we convert back to ImageData.
 // ─────────────────────────────────────────────────────────────────────────────
-async function removeBackground(srcID, threshold=32, feather=3){
-  const w=srcID.width, h=srcID.height;
-  const d=new Uint8ClampedArray(srcID.data); // working copy
-  const mask=new Uint8Array(w*h);            // 0=bg candidate, 1=fg
+async function removeBackgroundML(srcID, onProgress){
+  // Convert ImageData → Blob (PNG)
+  const srcCanvas=document.createElement("canvas");
+  srcCanvas.width=srcID.width; srcCanvas.height=srcID.height;
+  srcCanvas.getContext("2d").putImageData(srcID,0,0);
+  const srcBlob=await new Promise(res=>srcCanvas.toBlob(res,"image/png"));
 
-  // ── Step 1: Detect background colour from border sample points ───────────
-  const samplePoints=[];
-  // corners
-  samplePoints.push([0,0],[w-1,0],[0,h-1],[w-1,h-1]);
-  // edge midpoints
-  samplePoints.push([Math.floor(w/2),0],[Math.floor(w/2),h-1],
-                    [0,Math.floor(h/2)],[w-1,Math.floor(h/2)]);
-  // collect RGB of each sample
-  const sampleColors=samplePoints.map(([sx,sy])=>{
-    const i=(sy*w+sx)*4;
-    return [d[i],d[i+1],d[i+2]];
+  // Dynamically import the library (avoids SSR issues)
+  const { removeBackground } = await import("@imgly/background-removal");
+
+  const resultBlob = await removeBackground(srcBlob, {
+    model: "medium",           // "small" | "medium" — medium = best quality
+    output: { format: "image/png", quality: 1 },
+    progress: (key, current, total) => {
+      if(onProgress && total > 0) onProgress(Math.round((current/total)*100), key);
+    },
   });
-  // Average them as the "expected" background colour
-  const bgR=Math.round(sampleColors.reduce((a,c)=>a+c[0],0)/sampleColors.length);
-  const bgG=Math.round(sampleColors.reduce((a,c)=>a+c[1],0)/sampleColors.length);
-  const bgB=Math.round(sampleColors.reduce((a,c)=>a+c[2],0)/sampleColors.length);
 
-  const colourDist=(r,g,b)=>Math.sqrt((r-bgR)**2+(g-bgG)**2+(b-bgB)**2);
-
-  // ── Step 2: BFS flood-fill from all 4 edges ──────────────────────────────
-  const queue=[];
-  const visited=new Uint8Array(w*h);
-
-  const tryPush=(x,y)=>{
-    if(x<0||x>=w||y<0||y>=h)return;
-    const idx=y*w+x;
-    if(visited[idx])return;
-    const pi=idx*4;
-    if(colourDist(d[pi],d[pi+1],d[pi+2])<=threshold){
-      visited[idx]=1;
-      queue.push(idx);
-    }
-  };
-
-  for(let x=0;x<w;x++){tryPush(x,0);tryPush(x,h-1);}
-  for(let y=0;y<h;y++){tryPush(0,y);tryPush(w-1,y);}
-
-  let head=0;
-  while(head<queue.length){
-    const idx=queue[head++];
-    mask[idx]=0; // confirmed bg
-    const x=idx%w, y=Math.floor(idx/w);
-    tryPush(x+1,y);tryPush(x-1,y);
-    tryPush(x,y+1);tryPush(x,y-1);
-    if(head%5000===0)await new Promise(r=>setTimeout(r,0));
-  }
-  // anything not visited by flood fill = foreground
-  for(let i=0;i<w*h;i++) if(!visited[i]) mask[i]=1;
-
-  // ── Step 3: Morphological dilation — expand fg mask by `feather` px ──────
-  const dilated=new Uint8Array(mask);
-  const fr=feather;
-  for(let y=0;y<h;y++){
-    for(let x=0;x<w;x++){
-      if(mask[y*w+x]===1){
-        for(let dy=-fr;dy<=fr;dy++){
-          for(let dx=-fr;dx<=fr;dx++){
-            const nx=x+dx,ny=y+dy;
-            if(nx>=0&&nx<w&&ny>=0&&ny<h) dilated[ny*w+nx]=1;
-          }
-        }
-      }
-    }
-  }
-
-  // ── Step 4: Build output with feathered alpha ─────────────────────────────
-  const out=new Uint8ClampedArray(w*h*4);
-  for(let y=0;y<h;y++){
-    for(let x=0;x<w;x++){
-      const i=y*w+x, pi=i*4;
-      if(dilated[i]===0){
-        // Definite background → transparent
-        out[pi]=d[pi];out[pi+1]=d[pi+1];out[pi+2]=d[pi+2];out[pi+3]=0;
-      } else if(mask[i]===1){
-        // Definite foreground → fully opaque
-        out[pi]=d[pi];out[pi+1]=d[pi+1];out[pi+2]=d[pi+2];out[pi+3]=255;
-      } else {
-        // Feather zone (was dilated but not in original fg mask)
-        // Compute distance to nearest fg pixel for soft alpha
-        let minDist=fr+1;
-        for(let dy=-fr;dy<=fr&&minDist>1;dy++){
-          for(let dx=-fr;dx<=fr;dx++){
-            const nx=x+dx,ny=y+dy;
-            if(nx>=0&&nx<w&&ny>=0&&ny<h&&mask[ny*w+nx]===1){
-              const dist=Math.sqrt(dx*dx+dy*dy);
-              if(dist<minDist)minDist=dist;
-            }
-          }
-        }
-        const alpha=Math.round((minDist/fr)*255);
-        out[pi]=d[pi];out[pi+1]=d[pi+1];out[pi+2]=d[pi+2];out[pi+3]=Math.min(255,alpha);
-      }
-    }
-  }
-  return new ImageData(out,w,h);
+  // Convert result Blob → ImageData
+  const url=URL.createObjectURL(resultBlob);
+  return new Promise((resolve, reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const cv=document.createElement("canvas");
+      cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+      cv.getContext("2d").drawImage(img,0,0);
+      URL.revokeObjectURL(url);
+      resolve(cv.getContext("2d").getImageData(0,0,cv.width,cv.height));
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error("Failed to load result image")); };
+    img.src=url;
+  });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 const THEMES = {
   win97: {
@@ -1077,10 +1005,11 @@ export default function DitherBoy(){
   // Background removal state
   const [bgRemoved,      setBgRemoved]      = useState(false);
   const [bgRemoving,     setBgRemoving]     = useState(false);
-  const [bgThreshold,    setBgThreshold]    = useState(32);
-  const [bgReplaceFill,  setBgReplaceFill]  = useState("transparent"); // transparent|black|white|custom
+  const [bgProgress,     setBgProgress]     = useState(0);   // 0-100
+  const [bgProgressLabel,setBgProgressLabel]= useState("");  // e.g. "Downloading model…"
+  const [bgReplaceFill,  setBgReplaceFill]  = useState("transparent");
   const [bgCustomColor,  setBgCustomColor]  = useState("#ffffff");
-  const [bgRemovedData,  setBgRemovedData]  = useState(null); // ImageData after removal
+  const [bgRemovedData,  setBgRemovedData]  = useState(null);
   const [showBgPanel,    setShowBgPanel]    = useState(false);
   const [lastPreset,     setLastPreset]     = useState(null); // name of last applied preset
 
@@ -1106,6 +1035,7 @@ export default function DitherBoy(){
         setSrcImageData(id);origDataRef.current=id;
         setImgDims({w,h});setShowOriginal(false);
         setBgRemoved(false);setBgRemovedData(null);setBgRemoving(false);
+        setBgProgress(0);setBgProgressLabel("");
         setStatus(`Loaded: ${file.name} (${w}×${h})`);
         if(thumbRef.current){const tc=thumbRef.current;tc.width=90;tc.height=68;tc.getContext("2d").drawImage(img,0,0,90,68);}
       };
@@ -1142,18 +1072,33 @@ export default function DitherBoy(){
   const handleRemoveBg=useCallback(async()=>{
     if(!srcImageData||bgRemoving)return;
     setBgRemoving(true);
-    setStatus("Removing background…");
+    setBgProgress(0);
+    setBgProgressLabel("Initialising…");
+    setStatus("Removing background with ML…");
     try{
-      const result=await removeBackground(srcImageData,bgThreshold,3);
+      const STAGE_LABELS={
+        "fetch:model":   "Downloading model…",
+        "fetch:chunk":   "Downloading model…",
+        "compute:inference": "Running AI segmentation…",
+      };
+      const result=await removeBackgroundML(srcImageData,(pct,key)=>{
+        setBgProgress(pct);
+        const label=STAGE_LABELS[key]||"Processing…";
+        setBgProgressLabel(label);
+        setStatus(`${label} ${pct}%`);
+      });
       setBgRemovedData(result);
       setBgRemoved(true);
-      setStatus("Background removed — dithering with transparent layer");
+      setBgProgress(100);
+      setBgProgressLabel("");
+      setStatus("Background removed ✓");
     }catch(e){
       setStatus("BG removal failed: "+e.message);
+      console.error(e);
     }finally{
       setBgRemoving(false);
     }
-  },[srcImageData,bgThreshold,bgRemoving]);
+  },[srcImageData,bgRemoving]);
 
   const handleResetBg=useCallback(()=>{
     setBgRemoved(false);
@@ -1249,8 +1194,7 @@ export default function DitherBoy(){
       <WinBtn t={t} disabled={!srcImageData||bgRemoving}
         onClick={bgRemoved?handleResetBg:handleRemoveBg}
         style={bgRemoved?{...sunkenBorder(t),background:isWin?"#000080":"#333",color:"#fff"}:{}}>
-        {bgRemoving?"⏳ Removing…":bgRemoved?"✕ Restore BG":"✂ Remove BG"}
-      </WinBtn>
+        {bgRemoving?"⏳ Removing…":bgRemoved?"✕ Restore BG":"✂ Remove BG"}      </WinBtn>
       <select value={exportFmt} onChange={e=>setExportFmt(e.target.value)}
         style={{background:t.inputBg,...sunkenBorder(t),borderRadius:t.bRadius,
           padding:"2px 4px",fontSize:t.fontSize,fontFamily:t.font,
@@ -1321,14 +1265,43 @@ export default function DitherBoy(){
             onClick={bgRemoved?handleResetBg:handleRemoveBg}
             style={{width:"100%",justifyContent:"center",
               ...(bgRemoved?{...sunkenBorder(t),background:isWin?"#000080":"#333",color:"#fff"}:{})}}>
-            {bgRemoving?"⏳ Processing…":bgRemoved?"✕ Restore Background":"✂ Remove Background"}
+            {bgRemoving?"⏳ Processing…":bgRemoved?"✕ Restore Original":"✂ Remove Background"}
           </WinBtn>
 
-          {/* Sensitivity slider */}
-          <SliderRow t={t} label="Sensitivity" value={bgThreshold} min={5} max={120} onChange={setBgThreshold}/>
-          <div style={{fontSize:9,color:"#888",fontFamily:t.font,marginTop:-4,marginBottom:2}}>
-            ↑ higher = removes more colour variation
-          </div>
+          {/* ML info note */}
+          {!bgRemoving&&!bgRemoved&&(
+            <div style={{fontSize:9,color:"#888",fontFamily:t.font,lineHeight:1.5}}>
+              Uses an AI model running locally in your browser. First run downloads ~5 MB model (cached after).
+            </div>
+          )}
+
+          {/* Progress bar — shown while processing */}
+          {bgRemoving&&(
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:10,color:t.labelColor,fontFamily:t.font,
+                display:"flex",justifyContent:"space-between"}}>
+                <span>{bgProgressLabel||"Processing…"}</span>
+                <span style={{fontFamily:"monospace"}}>{bgProgress}%</span>
+              </div>
+              {/* Track */}
+              <div style={{height:8,position:"relative",
+                background:isWin?"#ffffff":"#d0d0d0",
+                ...(isWin
+                  ?{borderTop:"1px solid #808080",borderLeft:"1px solid #808080",
+                     borderBottom:"1px solid #fff",borderRight:"1px solid #fff"}
+                  :{borderRadius:4,border:"1px solid #bbb",overflow:"hidden"})}}>
+                <div style={{
+                  position:"absolute",top:0,left:0,bottom:0,
+                  width:`${bgProgress}%`,
+                  background:isWin
+                    ?"repeating-linear-gradient(45deg,#000080 0px,#000080 8px,#1084d0 8px,#1084d0 16px)"
+                    :"#555",
+                  borderRadius:isWin?0:3,
+                  transition:"width 0.2s",
+                }}/>
+              </div>
+            </div>
+          )}
 
           {/* Background fill options (only shown after removal) */}
           {bgRemoved&&<>
